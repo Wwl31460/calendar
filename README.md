@@ -3,6 +3,10 @@
 一款面向安卓手机的中文日历 App：**阳历农历对照 + 法定节假日 + 定时提醒（含农历生日）+ 日志 + PDF 课表导入**。
 纯前端实现，零第三方依赖，数据全部保存在手机本地，**断网也能用**，并内置**应用内检查更新**。
 
+- 代码仓库：<https://github.com/Wwl31460/calendar>
+- 最新安装包：<https://github.com/Wwl31460/calendar/releases/latest>
+- 国内加速下载（当前 v1.0.0）：<https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.0.0/calendar-v1.0.0.apk>
+
 ---
 
 ## 一、需求实现对照
@@ -21,10 +25,16 @@
 
 ### 方式 A：直接装 APK（推荐）
 
-安装包：`dist/calendar-v1.0.0.apk`（约 3.4 MB，已签名）。
+安装包：`dist/calendar-v1.0.0.apk`（3.36 MB，已签名），或直接从 Release 下载：
 
-1. 把 APK 传到手机（微信文件传输助手 / 数据线 / 网盘均可）。
-2. 手机上点击安装，系统提示「未知来源应用」时选择**允许**。
+| 通道 | 链接 |
+| --- | --- |
+| 内网加速（推荐，国内直连可用） | <https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.0.0/calendar-v1.0.0.apk> |
+| 备用加速 | <https://gh-proxy.com/https://github.com/Wwl31460/calendar/releases/download/v1.0.0/calendar-v1.0.0.apk> |
+| GitHub 原始地址 | <https://github.com/Wwl31460/calendar/releases/download/v1.0.0/calendar-v1.0.0.apk> |
+
+1. 手机上打开上面的链接下载 APK（微信里可能被拦，用浏览器打开）。
+2. 点击安装，系统提示「未知来源应用」时选择**允许**。
 3. 首次打开允许「通知」权限，提醒才能弹出来。
 4. 若「检查更新」提示需要「安装未知应用」权限，按引导打开开关即可。
 
@@ -91,7 +101,8 @@ App 内置的更新逻辑：
    （24 小时内只查一次）；
 2. 把 Release 的 `tag_name`（如 `v1.0.1`）与当前安装版本比较，有新版才弹窗；
 3. 弹窗里显示更新说明与安装包大小，点「立即更新」后**在 App 内下载并直接拉起系统安装器**；
-4. 直连 GitHub 失败时自动改用 `ghfast.top` / `gh-proxy.com` 镜像重试；
+4. 下载地址按 `ghfast.top` → `gh-proxy.com` → GitHub 原始地址的顺序尝试，**镜像优先**：
+   实测国内网络直连 `github.com` 下载会 19 秒超时，走镜像 1 秒内响应；
 5. 也可以随时手动「设置 → 检查更新」，并支持「跳过此版本」。
 
 ### 发一个新版本
@@ -110,12 +121,36 @@ node scripts/release.mjs 1.0.1 "修复课表单双周识别"
 
 > 也可以把 Token 写进项目根目录的 `.github-token` 文件（已加入 `.gitignore`，不会上传）。
 
+**推送通道说明（重要）**
+
+国内网络常出现 `github.com` 443 端口连不上（`Failed to connect to github.com port 443`），
+而 `api.github.com` 通常仍是通的。所以推送有两条通道：
+
+1. 先试 `git push`（网络正常时最快）；
+2. 失败则自动改用 **GitHub REST API 逐文件上传**，只传有差异的文件，日常发版通常只有几个。
+
+也可以单独调用 API 推送：
+
+```bash
+node scripts/push-github.mjs                      # 用 HEAD 的提交信息
+node scripts/push-github.mjs --message "v1.0.1"   # 指定提交信息
+```
+
+有代理时（如 Clash 的 `127.0.0.1:7890`）加一个环境变量即可，API 与 APK 上传都会走代理：
+
+```bash
+set HTTPS_PROXY=http://127.0.0.1:7890
+```
+
+> ⚠️ 用 API 通道推送时，远端提交的 SHA 与本地不同（内容一致、历史线性）。
+> 网络恢复后首次同步请执行：`git fetch && git reset --hard origin/main`，此后可继续正常 `git push`。
+
 **方式二：手动三步**
 
 ```bash
 node scripts/bump.mjs 1.0.1       # 改版本号（网页常量 + build.gradle + SW 缓存名）
 node scripts/build-apk.mjs        # 打包，产物 dist/calendar-v1.0.1.apk
-git add -A && git commit -m "v1.0.1" && git push
+node scripts/push-github.mjs      # 推送（git 不通时用这个）
 ```
 
 最后在 GitHub 上建一个 **Release**：
@@ -198,7 +233,10 @@ node scripts/build-apk.mjs
 │  └─ app/src/main/res/          # 图标 / 启动图 / 通知小图标
 ├─ dist/                         # 打包产物（不入库）
 ├─ samples/课表样例.pdf
-└─ scripts/                      # 构建与自测脚本
+└─ scripts/                      # 构建、发版与自测脚本
+   ├─ release.mjs                # 一键发版（打包→推送→建 Release→传 APK）
+   ├─ push-github.mjs            # git push 不通时的 API 推送通道
+   ├─ build-apk.mjs / bump.mjs   # 打包 / 改版本号
 ```
 
 ---
@@ -216,6 +254,7 @@ node scripts/test-engine.mjs      # 提醒触发 + 离线能力
 node scripts/test-ics.mjs         # 导出 .ics 校验
 node scripts/test-update-ui.mjs   # 检查更新界面（网页版）
 node scripts/test-native-bridge.mjs  # APK 内更新流程（模拟 Capacitor 桥）
+node scripts/test-update-live.mjs    # 真实网络请求 GitHub Release 验证
 ```
 
 演示数据：地址后加 `?demo=1`，仅在数据为空时注入示例课程、提醒与日志。
@@ -228,5 +267,6 @@ node scripts/test-native-bridge.mjs  # APK 内更新流程（模拟 Capacitor �
    调休需等官方公布后更新 `www/js/lunar.js` 里的 `OFFICIAL` 表。
 2. **PDF 课表**：仅支持文字版 PDF（可选中文字）。扫描件/图片版无法识别，请改用"粘贴文字课表"或手动添加。
 3. **提醒精度**：网页版依赖页面常驻；APK 版使用系统精确闹钟，可靠性最高。
-4. **更新检测**：依赖 GitHub 可达性。国内网络偶尔需要多试一次或开启代理，App 已内置镜像回退。
+4. **更新检测**：依赖 `api.github.com` 可达（国内多数网络可直连）；APK 下载走镜像通道，
+   直连 `github.com` 长期不通也不影响升级。
 5. 农历算法覆盖 1900–2100 年。

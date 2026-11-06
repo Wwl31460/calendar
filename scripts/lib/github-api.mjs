@@ -11,21 +11,24 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 let dispatcher = null;
-let dispatcherReady = false;
+let fetchImpl = globalThis.fetch;
+let ready = false;
 
-async function getDispatcher() {
-  if (dispatcherReady) return dispatcher;
-  dispatcherReady = true;
+/** Node 内置 fetch 不支持 dispatcher 选项，有代理时改用 undici 的 fetch */
+async function init() {
+  if (ready) return;
+  ready = true;
   const proxy = process.env.GH_PROXY || process.env.HTTPS_PROXY || process.env.https_proxy
     || process.env.HTTP_PROXY || process.env.http_proxy;
-  if (!proxy) return null;
+  if (!proxy) return;
   try {
-    const { ProxyAgent } = await import('undici');
-    dispatcher = new ProxyAgent(proxy);
+    const u = await import('undici');
+    dispatcher = new u.ProxyAgent(proxy);
+    fetchImpl = u.fetch;
+    console.log(`› 已启用代理 ${proxy}`);
   } catch {
     console.warn('› 检测到代理变量但未安装 undici，将尝试直连');
   }
-  return dispatcher;
 }
 
 export function getToken() {
@@ -54,11 +57,11 @@ export async function gh(method, apiPath, payload, { token, raw = false, retries
     body = JSON.stringify(payload);
   }
 
-  const d = await getDispatcher();
+  await init();
   let lastErr = '';
   for (let i = 0; i < retries; i++) {
     try {
-      const res = await fetch(url, { method, headers, body, dispatcher: d || undefined });
+      const res = await fetchImpl(url, { method, headers, body, dispatcher: dispatcher || undefined });
       const text = await res.text();
       if (!res.ok) {
         if (res.status === 404) return { ok: false, status: 404, data: null, text };
