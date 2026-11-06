@@ -130,19 +130,29 @@ export function removeReminder(id) {
 }
 
 /* ---------- 日志 ---------- */
-export function addNote({ date, time, text }) {
+export function addNote({ date, time, title = '', text = '', images = [] }) {
   const now = new Date();
   const n = {
     id: uid('n_'),
     date,
     time,
+    title,
     text,
+    images,
     createdAt: now.getTime(),
     updatedAt: now.getTime()
   };
   db.notes.push(n);
   persist();
   return n;
+}
+
+/** 列表里展示的标题：没有标题时退回正文首行 */
+export function noteTitle(n) {
+  const t = (n && n.title ? String(n.title) : '').trim();
+  if (t) return t;
+  const first = (n && n.text ? String(n.text) : '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0];
+  return first ? first.slice(0, 40) : '无标题';
 }
 
 export function updateNote(id, patch) {
@@ -164,6 +174,7 @@ export function addCourse(data) {
     name: '',
     teacher: '',
     room: '',
+    className: '',
     weekday: 1,     // 1..7
     start: 1,       // 起始节
     end: 2,         // 结束节

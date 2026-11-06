@@ -88,7 +88,7 @@ public final class Lunar {
     }
 
     public static String weekdayCn(int y, int m, int d) {
-        return "周" + "日一二三四五六".charAt(weekday(y, m, d));
+        return "星期" + "日一二三四五六".charAt(weekday(y, m, d));
     }
 
     /** 农历月日文本，如「九月廿八」；越界返回空串 */

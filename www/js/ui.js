@@ -28,6 +28,16 @@ export function toast(msg, ms = 2200) {
 }
 
 let openCount = 0;
+/* 弹层栈：供 Android 返回键逐级关闭 */
+const sheetStack = [];
+const notifyBack = () => { try { window.__syncBackState && window.__syncBackState(); } catch (e) { /* ignore */ } };
+export const sheetCount = () => sheetStack.length;
+export function closeTopSheet() {
+  const close = sheetStack[sheetStack.length - 1];
+  if (!close) return false;
+  close();
+  return true;
+}
 
 /** 立即收起所有提示（用于长任务完成后不再压住弹层） */
 export function hideToast() {
@@ -81,6 +91,8 @@ export function openSheet(opts) {
   function close() {
     if (closed) return;
     closed = true;
+    const i = sheetStack.indexOf(close);
+    if (i >= 0) sheetStack.splice(i, 1);
     el.classList.add('closing');
     setTimeout(() => {
       el.remove();
@@ -88,7 +100,10 @@ export function openSheet(opts) {
       if (openCount === 0) document.body.style.overflow = '';
     }, 220);
     onClose && onClose();
+    notifyBack();
   }
+  sheetStack.push(close);
+  notifyBack();
 
   el.querySelector('.sheet-mask').addEventListener('click', close);
 
@@ -115,17 +130,22 @@ export function openSheet(opts) {
   return { el, body: bodyEl, close };
 }
 
-/** 确认弹层 */
+/** 确认弹层
+ *  注意：必须「先 resolve 再 close」——close() 会同步回调 onClose，
+ *  若在 onClose 里 resolve(false)，会把后到的 resolve(true) 顶掉，导致点了确定也返回 false。
+ */
 export function confirmSheet({ title = '确认', message = '', okText = '确定', cancelText = '取消', danger = false }) {
   return new Promise(resolve => {
+    let settled = false;
+    const done = v => { if (settled) return; settled = true; resolve(v); };
     openSheet({
       title,
       body: `<p style="margin:0;color:var(--text-2);font-size:14px;line-height:1.65">${esc(message)}</p>`,
       actions: [
-        { text: cancelText, variant: 'secondary', onClick: c => { c(); resolve(false); } },
-        { text: okText, variant: danger ? 'danger' : 'primary', onClick: c => { c(); resolve(true); } }
+        { text: cancelText, variant: 'secondary', onClick: c => { done(false); c(); } },
+        { text: okText, variant: danger ? 'danger' : 'primary', onClick: c => { done(true); c(); } }
       ],
-      onClose: () => resolve(false)
+      onClose: () => done(false)
     });
   });
 }

@@ -1,5 +1,5 @@
 /* ---------- 日志视图 ---------- */
-import { db } from '../store.js';
+import { db, noteTitle } from '../store.js';
 import { daysBetween, esc, parseYmd, todayStr, weekdayCn } from '../utils.js';
 import { $, emptyState, icon } from '../ui.js';
 import { openNoteEditor } from '../forms.js';
@@ -11,11 +11,13 @@ let searchOpen = false;
 function noteHTML(n) {
   const d = parseYmd(n.date);
   const L = solar2lunar(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  const imgs = (n.images || []).length;
   return `
     <div class="note" data-id="${n.id}">
-      <div class="nt">${esc(n.text)}</div>
+      <div class="nt">${esc(noteTitle(n))}</div>
       <div class="nf">
         <span>${esc(n.time)}${L ? ' · 农历' + L.monthName + L.dayName : ''}</span>
+        ${imgs ? `<span class="nf-img">${icon('book2')} ${imgs} 张图</span>` : ''}
         ${n.updatedAt && n.updatedAt - n.createdAt > 60000 ? '<span>已编辑</span>' : ''}
       </div>
     </div>`;
@@ -57,7 +59,10 @@ export function render() {
   let list = all;
   if (query.trim()) {
     const q = query.trim().toLowerCase();
-    list = all.filter(n => (n.text || '').toLowerCase().includes(q) || (n.date || '').includes(q));
+    list = all.filter(n =>
+      (n.title || '').toLowerCase().includes(q) ||
+      (n.text || '').toLowerCase().includes(q) ||
+      (n.date || '').includes(q));
   }
 
   const box = $('#notes-list');

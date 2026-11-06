@@ -4,8 +4,8 @@ import { COURSE_COLORS, currentWeek, formatRange, guessSemesterStart, periodTime
 import { $, confirmSheet, emptyState, h, hideToast, icon, openSheet, toast } from '../ui.js';
 import { openCourseForm } from '../forms.js';
 import { parseLooseText, parsePdfFile } from '../pdf-parse.js';
-import { loadPdfFile, pdfMeta, removePdfFile, savePdfFile, storageReady } from '../pdf-doc.js';
-import { openPdfViewer } from '../pdf-viewer.js';
+import { docMeta, kindOf, loadDocFile, removeDocFile, saveDocFile, storageReady } from '../pdf-doc.js';
+import { openDocViewer } from '../pdf-viewer.js';
 import { esc, startOfWeek, todayStr, ymd } from '../utils.js';
 
 let viewWeek = null;
@@ -84,7 +84,7 @@ export function render() {
     const span = Math.max(1, c.end - c.start + 1);
     html += `<div class="course" data-id="${c.id}" style="--c:${COURSE_COLORS[c.color || 0]};grid-column:${c.weekday + 1};grid-row:${c.start + 1} / span ${span}">
       <b>${esc(c.name)}</b>
-      ${c.room ? `<span>${esc(c.room)}</span>` : ''}
+      ${(c.room || c.className) ? `<span>${esc([c.room, c.className].filter(Boolean).join(' · '))}</span>` : ''}
     </div>`;
   });
 
@@ -109,11 +109,11 @@ export function render() {
   renderPdfCard();
 }
 
-/* ---------------- 已保存的课表 PDF（不绑定日期） ---------------- */
+/* ---------------- 已保存的课表原文件（PDF / 图片，不绑定日期） ---------------- */
 function renderPdfCard() {
   const box = $('#tt-pdf');
   if (!box) return;
-  const meta = pdfMeta();
+  const meta = docMeta();
   if (!meta) { box.innerHTML = ''; return; }
 
   const d = new Date(meta.savedAt);
@@ -121,12 +121,13 @@ function renderPdfCard() {
   const size = meta.size > 1024 * 1024
     ? (meta.size / 1024 / 1024).toFixed(1) + ' MB'
     : Math.max(1, Math.round(meta.size / 1024)) + ' KB';
+  const isImg = meta.kind === 'image';
 
   box.innerHTML = `<div class="tt-pdf-card">
-    <div class="pd-ico">${icon('file')}</div>
+    <div class="pd-ico ${isImg ? 'img' : ''}">${icon(isImg ? 'book2' : 'file')}</div>
     <div class="grow">
       <div class="t1">${esc(meta.name)}</div>
-      <div class="t2">${date} 保存 · ${size}</div>
+      <div class="t2">${date} 保存 · ${size} · ${isImg ? '图片' : 'PDF'}</div>
     </div>
     <button class="pd-act" data-pdf="open">查看</button>
     <button class="pd-act ghost" data-pdf="del">删除</button>
@@ -136,9 +137,9 @@ function renderPdfCard() {
     if (!storageReady()) { toast('当前环境不支持本地文件存储'); return; }
     toast('正在打开…', 1200);
     try {
-      const rec = await loadPdfFile();
+      const rec = await loadDocFile();
       if (!rec) { toast('文件已丢失，请重新上传'); return; }
-      openPdfViewer({ data: rec.data, name: rec.name });
+      openDocViewer({ kind: rec.kind, data: rec.data, blob: rec.blob, name: rec.name });
     } catch (e) {
       console.error(e);
       toast('打开失败：' + (e.message || '未知错误'));
@@ -147,13 +148,13 @@ function renderPdfCard() {
 
   box.querySelector('[data-pdf="del"]').addEventListener('click', async () => {
     const ok = await confirmSheet({
-      title: '删除课表 PDF',
+      title: '删除课表原文件',
       message: '只会删除保存的原文件，已导入的课程不受影响。',
       okText: '删除',
       danger: true
     });
     if (!ok) return;
-    try { await removePdfFile(); } catch (e) { console.error(e); }
+    try { await removeDocFile(); } catch (e) { console.error(e); }
     renderPdfCard();
     toast('已删除');
   });
@@ -198,22 +199,22 @@ export function openSemesterSheet() {
 /* ---------------- 导入 ---------------- */
 export function openImportSheet() {
   const body = h(`<div>
-    <p class="hint" style="margin-top:0">可以从 PDF 的文字层识别课程并排进周次；也可以把 PDF 原文件直接存进 App，随时翻看。</p>
-    <button class="btn" id="pick-pdf" style="width:100%;margin-top:14px">${icon('file')}&nbsp;选择 PDF 并识别课程</button>
-    <button class="btn secondary" id="pick-pdf-view" style="width:100%;margin-top:10px">${icon('book2')}&nbsp;只保存原图查看（不识别文字）</button>
+    <p class="hint" style="margin-top:0">支持教务系统导出的 PDF（文字版）和课表截图。PDF 会自动识别星期、节次、周次、教师、地点、班级；图片会原样存进 App，随时放大查看。</p>
+    <button class="btn" id="pick-auto" style="width:100%;margin-top:14px">${icon('upload')}&nbsp;选择 PDF / 图片并导入</button>
+    <button class="btn secondary" id="pick-view" style="width:100%;margin-top:10px">${icon('book2')}&nbsp;只保存原文件（不识别文字）</button>
     <button class="btn secondary" id="paste-text" style="width:100%;margin-top:10px">${icon('pen')}&nbsp;粘贴文字课表</button>
-    <input type="file" accept="application/pdf,.pdf,application/octet-stream" id="pdf-input" hidden />
-    <p class="hint" style="margin-top:14px">扫描件、或内嵌字体缺少映射的 PDF 提不出文字，用「只保存原图查看」即可：文件会留在课表页底部，不受日期与周次影响。</p>
+    <input type="file" accept="application/pdf,.pdf,image/*" id="pdf-input" hidden />
+    <p class="hint" style="margin-top:14px">扫描件或图片提不出文字，会自动转为「原文件查看」：文件留在课表页顶部，不绑定日期与周次，可双指缩放、旋转。</p>
   </div>`);
 
   const sheet = openSheet({ title: '导入课表', body });
   let viewMode = false;
 
-  body.querySelector('#pick-pdf').addEventListener('click', () => {
+  body.querySelector('#pick-auto').addEventListener('click', () => {
     viewMode = false;
     body.querySelector('#pdf-input').click();
   });
-  body.querySelector('#pick-pdf-view').addEventListener('click', () => {
+  body.querySelector('#pick-view').addEventListener('click', () => {
     viewMode = true;
     body.querySelector('#pdf-input').click();
   });
@@ -222,7 +223,13 @@ export function openImportSheet() {
     const file = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!file) return;
-    if (viewMode) { sheet.close(); saveAndView(file); return; }
+
+    const kind = kindOf(file);
+    if (viewMode || kind === 'image') {
+      sheet.close();
+      saveAndView(file);
+      return;
+    }
 
     toast('正在解析 PDF…', 3000);
     try {
@@ -232,7 +239,7 @@ export function openImportSheet() {
       if (result.mode === 'image' || !result.courses || !result.courses.length) {
         openImageOffer(file, result);
       } else {
-        openPreview(result.courses, result.mode);
+        openPreview(result.courses, result.mode, result);
       }
     } catch (err) {
       console.error(err);
@@ -248,35 +255,48 @@ export function openImportSheet() {
   });
 }
 
-/** 文字层不可用时，引导保存原图 */
+/** 文字层不可用 / 解析不出课程时的退路 */
 function openImageOffer(file, result) {
   const why = result && result.error
     ? `解析出错了（${result.error}）`
-    : '没有可用的文字层（多为扫描件，或 PDF 内嵌字体缺少字符映射）';
+    : '没有可用文字层（多为扫描件，或 PDF 内嵌字体缺少字符映射）';
+  const hasText = !!(result && result.rawText && result.rawText.trim().length > 20);
   const body = h(`<div>
-    <div class="banner warn">${icon('warn')}<div>这个 PDF ${esc(why)}，无法自动提取课程文字。</div></div>
-    <p class="hint">可以把原文件直接存进 App：按页渲染、可放大，随时在「课表」页底部打开，不绑定任何日期。</p>
+    <div class="banner warn">${icon('warn')}<div>这个 PDF ${esc(why)}，没能自动提取课程。</div></div>
+    <p class="hint">可以把原文件直接存进 App：按页高清渲染，可双指缩放、旋转，随时在「课表」页顶部打开，不绑定任何日期。</p>
+    ${hasText ? `<button class="btn secondary sm" id="show-raw" style="width:100%;margin-top:10px">看看这次提取到的文字</button>` : ''}
   </div>`);
-  openSheet({
-    title: '改为原图查看',
+  const sheet = openSheet({
+    title: '改为原文件查看',
     body,
     actions: [
       { text: '取消', variant: 'secondary', onClick: c => c() },
       { text: '保存并查看', onClick: c => { c(); saveAndView(file); } }
     ]
   });
+  const rawBtn = body.querySelector('#show-raw');
+  if (rawBtn) rawBtn.addEventListener('click', () => openRawText(result.rawText));
 }
 
-/** 保存 PDF 并立即打开 */
+/** 展示解析到的原始文字，便于核对/反馈 */
+export function openRawText(text) {
+  const body = h(`<div>
+    <p class="hint" style="margin-top:0">下面是 PDF 里提取到的全部文字。如果这里是空的或乱码，说明文件本身没有文字层。</p>
+    <textarea class="input" readonly style="min-height:44dvh;font-size:12px;line-height:1.6">${esc(text || '')}</textarea>
+  </div>`);
+  openSheet({ title: '提取到的文字', body });
+}
+
+/** 保存原文件并立即打开 */
 async function saveAndView(file) {
   if (!storageReady()) { toast('当前环境不支持本地文件存储'); return; }
-  if (file.size > 30 * 1024 * 1024) { toast('文件超过 30 MB，请压缩后再试'); return; }
+  if (file.size > 40 * 1024 * 1024) { toast('文件超过 40 MB，请压缩后再试'); return; }
   try {
     toast('正在保存…', 1500);
-    await savePdfFile(file);
+    await saveDocFile(file);
     renderPdfCard();
-    const rec = await loadPdfFile();
-    if (rec) openPdfViewer({ data: rec.data, name: rec.name });
+    const rec = await loadDocFile();
+    if (rec) openDocViewer({ kind: rec.kind, data: rec.data, blob: rec.blob, name: rec.name });
     toast('已保存，可在课表页随时查看');
   } catch (e) {
     console.error(e);
@@ -304,7 +324,7 @@ function openTextFallback(tip = '') {
           const courses = parseLooseText(txt);
           if (!courses.length) { toast('没有识别到课程，请检查格式（需包含"周一"等字样）'); return; }
           c();
-          openPreview(courses, 'text');
+          openPreview(courses, 'text', { rawText: txt });
         }
       }
     ]
@@ -312,17 +332,18 @@ function openTextFallback(tip = '') {
   return sheet;
 }
 
-function openPreview(courses, mode) {
+function openPreview(courses, mode, extra = {}) {
   let list = courses.map(c => ({ ...c, on: true }));
   const defaultStart = db.settings.semesterStart || ymd(guessSemesterStart());
 
   const body = h(`<div>
-    <div class="banner">${icon('check')}<div>识别到 <b>${list.length}</b> 门课程安排${mode === 'text' ? '（文字模式）' : '（表格模式）'}，请核对后导入。</div></div>
+    <div class="banner">${icon('check')}<div>识别到 <b>${list.length}</b> 门课程${mode === 'text' ? '（文字模式）' : '（表格模式）'}，请核对后导入。</div></div>
     <div class="row2">
       <div class="field"><label>学期开始（第1周周一）</label><input class="input" type="date" id="p-start" value="${esc(defaultStart)}" /></div>
       <div class="field"><label>总周数</label><input class="input" type="number" id="p-weeks" min="1" max="30" value="${db.settings.totalWeeks || 20}" /></div>
     </div>
     <div style="max-height:38dvh;overflow:auto;padding-right:2px" id="p-list"></div>
+    ${extra.rawText ? '<button class="btn secondary sm" id="p-raw" style="width:100%;margin-top:8px">查看提取到的原始文字</button>' : ''}
   </div>`);
 
   const listEl = body.querySelector('#p-list');
@@ -332,7 +353,7 @@ function openPreview(courses, mode) {
         <label class="switch"><input type="checkbox" data-i="${i}" ${c.on ? 'checked' : ''}/><i></i></label>
         <div class="pi-main">
           <div class="pi-name">${esc(c.name)}</div>
-          <div class="pi-meta">${esc('周' + WD[c.weekday - 1])} 第 ${c.start}-${c.end} 节 · ${esc(weeksLabel(c.weeks))}${c.room ? ' · ' + esc(c.room) : ''}${c.teacher ? ' · ' + esc(c.teacher) : ''}</div>
+          <div class="pi-meta">${esc('周' + WD[c.weekday - 1])} 第 ${c.start}-${c.end} 节 · ${esc(weeksLabel(c.weeks))}${c.room ? ' · ' + esc(c.room) : ''}${c.teacher ? ' · ' + esc(c.teacher) : ''}${c.className ? ' · ' + esc(c.className) : ''}</div>
         </div>
       </div>`).join('');
     listEl.querySelectorAll('input[type=checkbox]').forEach(cb => {
@@ -344,7 +365,7 @@ function openPreview(courses, mode) {
   };
   draw();
 
-  openSheet({
+  const sheet = openSheet({
     title: '确认导入',
     body,
     actions: [
@@ -372,6 +393,7 @@ function openPreview(courses, mode) {
               name: c.name,
               teacher: c.teacher || '',
               room: c.room || '',
+              className: c.className || '',
               weekday: c.weekday,
               start: c.start,
               end: c.end,
@@ -388,6 +410,10 @@ function openPreview(courses, mode) {
       }
     ]
   });
+
+  const rawBtn = body.querySelector('#p-raw');
+  if (rawBtn) rawBtn.addEventListener('click', () => openRawText(extra.rawText));
+  return sheet;
 }
 
 /* ---------------- 绑定 ---------------- */

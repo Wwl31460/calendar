@@ -112,17 +112,41 @@ def content(size):
     return img
 
 
-def full(size, radius_ratio=0.2235, circle=False, art_ratio=0.86):
-    img = background(size, radius_ratio, circle)
-    w = int(size * art_ratio)
-    art = content(w)
-    img.alpha_composite(art, ((size - w) // 2, (size - w) // 2))
+def tile(size, radius_ratio=0.2235, circle=False):
+    """整块日历页：白底 + 顶部红条 + 星期 + 日期，铺满整个画布（不再有蓝色底）"""
+    r = int(size * radius_ratio)
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+
+    # 页底（圆角矩形铺满）
+    d.rounded_rectangle([0, 0, size - 1, size - 1], radius=r, fill=PAGE)
+
+    # 顶部红条：只有上方两角是圆角
+    band = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    bd = ImageDraw.Draw(band)
+    bd.rounded_rectangle([0, 0, size - 1, int(size * 0.34)], radius=r, fill=(255, 255, 255, 255))
+    bd.rectangle([0, int(size * 0.20), size - 1, int(size * 0.34)], fill=(255, 255, 255, 255))
+    grad = vgrad(size, RED_TOP, RED_BOT)
+    grad.putalpha(band.split()[3])
+    img.alpha_composite(grad)
+
+    # 星期（红条内）
+    _center_text(d, size / 2, size * 0.19, WEEK, font(size * 0.118), (255, 255, 255, 246))
+    # 日期（白底内，字尽量大）
+    _center_text(d, size / 2, size * 0.635, DAY, font(size * 0.40), INK)
+
+    if circle:
+        mask = Image.new("L", (size, size), 0)
+        ImageDraw.Draw(mask).ellipse([0, 0, size - 1, size - 1], fill=255)
+        img.putalpha(mask)
     return img
+
+
+def full(size, radius_ratio=0.2235, circle=False, art_ratio=0.86):
+    """独立图标（桌面/网页）：整块日历页，没有额外底色"""
+    return tile(size, radius_ratio=radius_ratio, circle=circle)
 
 
 def foreground(size, art_ratio=0.60):
-    """自适应图标前景：内容约占 60%（落在安全区内）"""
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    w = int(size * art_ratio)
-    img.alpha_composite(content(w), ((size - w) // 2, (size - w) // 2))
-    return img
+    """自适应图标前景：整块铺满画布，交给系统裁切形状"""
+    return tile(size, radius_ratio=0.0)

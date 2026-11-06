@@ -1,74 +1,74 @@
-/* ---------- 课表 PDF 原文件存储（IndexedDB，可离线随时查看） ---------- */
+/* ---------- 课表原文件存储（PDF / 图片，IndexedDB，可离线随时查看） ---------- */
 import { db, persist } from './store.js';
+import { store, storageReady, wrap } from './idb.js';
 
-const DB_NAME = 'calapp-files';
 const STORE = 'files';
-const KEY = 'timetable-pdf';
+const KEY = 'timetable-doc';
 
-let dbp = null;
+export { storageReady };
 
-function openDb() {
-  if (dbp) return dbp;
-  dbp = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const d = req.result;
-      if (!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error || new Error('无法打开本地存储'));
-  });
-  return dbp;
+/** 当前保存的原文件元信息（可同步读取） */
+export function docMeta() {
+  const d = db.settings.timetableDoc;
+  if (d && d.name) return d;
+  // 兼容旧版本存过的 PDF
+  const old = db.settings.timetablePdf;
+  if (old && old.name) return { ...old, kind: 'pdf' };
+  return null;
 }
 
-function tx(mode) {
-  return openDb().then(d => d.transaction(STORE, mode).objectStore(STORE));
+/** 判断文件类型 */
+export function kindOf(file) {
+  const name = (file && file.name) || '';
+  if (/\.pdf$/i.test(name) || file.type === 'application/pdf') return 'pdf';
+  if (/^image\//.test(file.type || '') || /\.(png|jpe?g|webp|bmp|gif|heic)$/i.test(name)) return 'image';
+  return 'pdf';
 }
 
-const wrap = req => new Promise((resolve, reject) => {
-  req.onsuccess = () => resolve(req.result);
-  req.onerror = () => reject(req.error);
-});
+/** 保存一份原文件（覆盖旧的） */
+export async function saveDocFile(file) {
+  const kind = kindOf(file);
+  const type = file.type || (kind === 'pdf' ? 'application/pdf' : 'image/*');
+  const blob = file.slice ? file.slice(0, file.size, type) : file;
 
-/** 当前保存的 PDF 元信息（来自 settings，可同步读取） */
-export function pdfMeta() {
-  return db.settings.timetablePdf && db.settings.timetablePdf.name ? db.settings.timetablePdf : null;
-}
-
-/** 保存一份 PDF（覆盖旧文件） */
-export async function savePdfFile(file) {
-  const blob = file.slice ? file.slice(0, file.size, 'application/pdf') : file;
-  const store = await tx('readwrite');
-  await wrap(store.put({ blob, name: file.name, size: file.size, savedAt: Date.now() }, KEY));
+  const s = await store(STORE, 'readwrite');
+  await wrap(s.put({ blob, name: file.name || (kind === 'pdf' ? '课表.pdf' : '课表图片'), size: file.size, kind, savedAt: Date.now() }, KEY));
 
   const meta = {
-    name: file.name || '课表.pdf',
+    name: file.name || (kind === 'pdf' ? '课表.pdf' : '课表图片'),
     size: file.size,
+    kind,
     savedAt: Date.now()
   };
-  db.settings.timetablePdf = meta;
+  db.settings.timetableDoc = meta;
+  delete db.settings.timetablePdf;
   persist();
   return meta;
 }
 
-/** 读取 PDF 二进制内容 */
-export async function loadPdfFile() {
-  const store = await tx('readonly');
-  const rec = await wrap(store.get(KEY));
+/** 读取原文件：PDF 给 ArrayBuffer，图片给 Blob */
+export async function loadDocFile() {
+  const s = await store(STORE);
+  const rec = await wrap(s.get(KEY));
   if (!rec || !rec.blob) return null;
-  const data = await rec.blob.arrayBuffer();
-  return { data, name: rec.name, size: rec.size, savedAt: rec.savedAt };
+  const kind = rec.kind || 'pdf';
+  if (kind === 'pdf') {
+    return { kind, name: rec.name, size: rec.size, savedAt: rec.savedAt, data: await rec.blob.arrayBuffer() };
+  }
+  return { kind, name: rec.name, size: rec.size, savedAt: rec.savedAt, blob: rec.blob };
 }
 
 /** 删除 */
-export async function removePdfFile() {
-  const store = await tx('readwrite');
-  await wrap(store.delete(KEY));
+export async function removeDocFile() {
+  const s = await store(STORE, 'readwrite');
+  await wrap(s.delete(KEY));
+  delete db.settings.timetableDoc;
   delete db.settings.timetablePdf;
   persist();
 }
 
-/** 是否可用的 IndexedDB */
-export function storageReady() {
-  try { return typeof indexedDB !== 'undefined'; } catch (e) { return false; }
-}
+/* ---- 旧接口别名（保留兼容） ---- */
+export const pdfMeta = docMeta;
+export const savePdfFile = saveDocFile;
+export const removePdfFile = removeDocFile;
+export const loadPdfFile = loadDocFile;

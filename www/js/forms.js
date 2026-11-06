@@ -3,7 +3,8 @@ import {
   addCourse, addNote, addReminder, db, persist, removeCourse, removeNote,
   removeReminder, updateCourse, updateNote, updateReminder
 } from './store.js';
-import { confirmSheet, h, openSheet, segmented, toast } from './ui.js';
+import { confirmSheet, h, hideToast, icon, openSheet, segmented, toast } from './ui.js';
+import { deleteImage, deleteImages, loadImage, saveImages } from './media.js';
 import { solar2lunar, lunar2solar } from './lunar.js';
 import { lunarDayCn, lunarMonthCn } from './reminder.js';
 import { COURSE_COLORS, parseWeeks, weeksLabel } from './schedule.js';
@@ -111,20 +112,85 @@ export function openReminderForm({ reminder = null, date = todayStr() } = {}) {
 export function openNoteEditor({ note = null, date = todayStr() } = {}) {
   const isEdit = !!note;
   const now = new Date();
-  const n = note || { date, time: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`, text: '' };
+  const n = note || { date, time: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`, title: '', text: '', images: [] };
+  let images = Array.isArray(n.images) ? n.images.slice() : [];
+  const addedIds = [];   // 本次新加的图片，取消编辑时要一并清掉
+  let saved = false;
 
   const body = h(`
     <div>
+      <div class="field">
+        <label>标题</label>
+        <input class="input" id="n-title" maxlength="60" placeholder="给这条日志起个标题" value="${esc(n.title || '')}" />
+      </div>
       <div class="row2">
         <div class="field"><label>日期</label><input class="input" type="date" id="n-date" value="${esc(n.date)}" /></div>
         <div class="field"><label>时间</label><input class="input" type="time" id="n-time" value="${esc(n.time)}" /></div>
       </div>
       <div class="field">
         <label>内容</label>
-        <textarea class="input" id="n-text" style="min-height:150px" maxlength="5000" placeholder="记点什么…">${esc(n.text)}</textarea>
+        <textarea class="input" id="n-text" style="min-height:130px" maxlength="5000" placeholder="记点什么…">${esc(n.text)}</textarea>
       </div>
-      ${isEdit ? '<button class="btn danger sm" id="n-del" style="width:100%">删除这条日志</button>' : ''}
+      <div class="field">
+        <label>图片</label>
+        <div class="note-thumbs" id="n-thumbs"></div>
+        <button type="button" class="btn secondary sm" id="n-pick" style="width:100%;margin-top:2px">${icon('plus')}&nbsp;从相册添加图片</button>
+        <input type="file" accept="image/*" multiple id="n-file" hidden />
+        <p class="hint" style="margin-top:8px">图片会压缩后保存在手机本地，不会上传。</p>
+      </div>
+      ${isEdit ? '<button class="btn danger sm" id="n-del" style="width:100%;margin-top:4px">删除这条日志</button>' : ''}
     </div>`);
+
+  const thumbs = body.querySelector('#n-thumbs');
+
+  function drawThumbs() {
+    if (!images.length) {
+      thumbs.innerHTML = '<div class="thumbs-empty">还没有图片</div>';
+      return;
+    }
+    thumbs.innerHTML = images.map((im, i) => `
+      <div class="thumb" data-i="${i}">
+        <div class="thumb-ph"></div>
+        <button type="button" class="thumb-x" data-x="${i}" aria-label="移除">×</button>
+      </div>`).join('');
+    images.forEach(async (im, i) => {
+      const el = thumbs.querySelector(`.thumb[data-i="${i}"] .thumb-ph`);
+      if (!el) return;
+      try {
+        const url = await loadImage(im.id);
+        if (url && el.isConnected) el.style.backgroundImage = `url("${url}")`;
+        else if (el.isConnected) el.textContent = '已丢失';
+      } catch (e) { /* ignore */ }
+    });
+    thumbs.querySelectorAll('.thumb-x').forEach(b => {
+      b.addEventListener('click', async e => {
+        e.stopPropagation();
+        const i = Number(b.dataset.x);
+        const [rm] = images.splice(i, 1);
+        if (rm) {
+          const k = addedIds.indexOf(rm.id);
+          if (k >= 0) addedIds.splice(k, 1);
+          deleteImage(rm.id).catch(() => {});
+        }
+        drawThumbs();
+      });
+    });
+  }
+  drawThumbs();
+
+  body.querySelector('#n-pick').addEventListener('click', () => body.querySelector('#n-file').click());
+  body.querySelector('#n-file').addEventListener('change', async e => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length) return;
+    toast('正在处理图片…', 1500);
+    const got = await saveImages(files);
+    hideToast();
+    if (!got.length) { toast('图片读取失败，请换一张试试'); return; }
+    got.forEach(g => { images.push(g); addedIds.push(g.id); });
+    drawThumbs();
+    toast(`已添加 ${got.length} 张图片`);
+  });
 
   const sheet = openSheet({
     title: isEdit ? '编辑日志' : '写日志',
@@ -133,18 +199,25 @@ export function openNoteEditor({ note = null, date = todayStr() } = {}) {
       { text: '取消', variant: 'secondary', onClick: c => c() },
       {
         text: '保存', onClick: close => {
+          const title = body.querySelector('#n-title').value.trim();
           const text = body.querySelector('#n-text').value.trim();
-          const date = body.querySelector('#n-date').value;
+          const d = body.querySelector('#n-date').value;
           const time = body.querySelector('#n-time').value || '00:00';
-          if (!text) { toast('内容不能为空'); return; }
-          if (!date) { toast('请选择日期'); return; }
-          if (isEdit) updateNote(note.id, { text, date, time });
-          else addNote({ text, date, time });
+          if (!title && !text && !images.length) { toast('标题、内容、图片至少填一项'); return; }
+          if (!d) { toast('请选择日期'); return; }
+          const data = { title, text, date: d, time, images };
+          if (isEdit) updateNote(note.id, data);
+          else addNote(data);
+          saved = true;
           close();
           toast('已保存');
         }
       }
-    ]
+    ],
+    onClose: () => {
+      // 取消编辑：把这次新加、但没保存的图片清掉，避免占空间
+      if (!saved && addedIds.length) deleteImages(addedIds).catch(() => {});
+    }
   });
 
   if (isEdit) {
@@ -152,11 +225,13 @@ export function openNoteEditor({ note = null, date = todayStr() } = {}) {
       const ok = await confirmSheet({ title: '删除日志', message: '删除后不可恢复，确定吗？', okText: '删除', danger: true });
       if (!ok) return;
       removeNote(note.id);
+      deleteImages((note.images || []).map(x => x.id)).catch(() => {});
+      saved = true;
       sheet.close();
       toast('已删除');
     });
   }
-  setTimeout(() => body.querySelector('#n-text').focus({ preventScroll: true }), 260);
+  setTimeout(() => body.querySelector('#n-title').focus({ preventScroll: true }), 260);
   return sheet;
 }
 
@@ -165,7 +240,7 @@ export function openCourseForm({ course = null, weekday = 1 } = {}) {
   const isEdit = !!course;
   const total = db.settings.totalPeriods || 12;
   const c = course || {
-    name: '', teacher: '', room: '', weekday, start: 1, end: 2, weeks: [], color: 0
+    name: '', teacher: '', room: '', className: '', weekday, start: 1, end: 2, weeks: [], color: 0
   };
   let color = c.color || 0;
   let weeks = (c.weeks && c.weeks.length) ? [...c.weeks] : Array.from({ length: db.settings.totalWeeks || 20 }, (_, i) => i + 1);
@@ -181,6 +256,10 @@ export function openCourseForm({ course = null, weekday = 1 } = {}) {
       <div class="row2">
         <div class="field"><label>任课教师</label><input class="input" id="c-teacher" maxlength="20" placeholder="选填" value="${esc(c.teacher || '')}" /></div>
         <div class="field"><label>上课地点</label><input class="input" id="c-room" maxlength="24" placeholder="选填" value="${esc(c.room || '')}" /></div>
+      </div>
+      <div class="field">
+        <label>班级</label>
+        <input class="input" id="c-class" maxlength="30" placeholder="例如：计算机2201、软件3班" value="${esc(c.className || '')}" />
       </div>
       <div class="field"><label>星期</label><div id="c-weekday"></div></div>
       <div class="row2">
@@ -243,6 +322,7 @@ export function openCourseForm({ course = null, weekday = 1 } = {}) {
             name,
             teacher: body.querySelector('#c-teacher').value.trim(),
             room: body.querySelector('#c-room').value.trim(),
+            className: body.querySelector('#c-class').value.trim(),
             weekday: wd, start, end,
             weeks: weeksArr.length ? weeksArr : weeks,
             color

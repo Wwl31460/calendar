@@ -8,7 +8,7 @@ import * as settingsView from './views/settings.js';
 import { ensurePermission, isNative, startEngine, syncNativeSchedule } from './reminder.js';
 import { applyTheme, initTheme } from './theme.js';
 import { autoCheck } from './updater.js';
-import { $, $$, toast } from './ui.js';
+import { $, $$, closeTopSheet, sheetCount, toast } from './ui.js';
 
 const views = {
   calendar,
@@ -19,6 +19,42 @@ const views = {
 };
 
 let current = 'calendar';
+/* 全屏覆盖层（PDF/图片阅读器）的关闭函数 */
+let overlayClose = null;
+export function setOverlayCloser(fn) { overlayClose = fn; syncBackState(); }
+window.__setOverlayCloser = setOverlayCloser;
+
+/** 当前"可以返回上一级"的层数：弹层 / 覆盖层 / 设置页各算一层 */
+function backDepth() {
+  let n = sheetCount();
+  if (overlayClose) n += 1;
+  if (current === 'settings') n += 1;
+  return n;
+}
+
+/** 告知原生层：>0 时返回键交给网页处理，=0 时才退出 App */
+function syncBackState() {
+  try {
+    const depth = backDepth();
+    if (window.AppBack && window.AppBack.setDepth) window.AppBack.setDepth(depth);
+  } catch (e) { /* 非原生环境 */ }
+}
+window.__syncBackState = syncBackState;
+
+/** 原生返回键 → 逐级退回，而不是直接退出应用 */
+window.__handleBack = () => {
+  if (overlayClose) {
+    const fn = overlayClose;
+    overlayClose = null;
+    try { fn(); } catch (e) { /* ignore */ }
+    syncBackState();
+    return true;
+  }
+  if (closeTopSheet()) { syncBackState(); return true; }
+  if (current === 'settings') { switchView('calendar'); return true; }
+  syncBackState();
+  return false;
+};
 
 export function switchView(name) {
   if (!views[name]) return;
@@ -28,6 +64,7 @@ export function switchView(name) {
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   views[name].render && views[name].render();
   window.scrollTo({ top: 0 });
+  syncBackState();
 }
 
 function init() {

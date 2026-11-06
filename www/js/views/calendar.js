@@ -1,6 +1,6 @@
 /* ---------- 日历视图 ---------- */
 import { cellLabel, dayInfo, getHolidayMap, weekCn, xingzuo } from '../lunar.js';
-import { db } from '../store.js';
+import { db, noteTitle } from '../store.js';
 import { addDays, esc, parseYmd, todayStr, ymd } from '../utils.js';
 import { openCourseForm, openNoteEditor, openReminderForm } from '../forms.js';
 import { remindersOn, repeatLabel } from '../reminder.js';
@@ -138,8 +138,8 @@ function agendaHTML() {
       <div class="item" data-act="note" data-id="${n.id}">
         <span class="bar green"></span>
         <div class="grow">
-          <div class="t1" style="font-weight:400">${esc(n.text).slice(0, 60)}</div>
-          <div class="t2">${esc(n.time)}</div>
+          <div class="t1" style="font-weight:400">${esc(noteTitle(n))}${(n.images || []).length ? ' 🖼' : ''}</div>
+          <div class="t2">${esc(n.time)}${n.text ? ' · ' + esc(n.text.replace(/\s+/g, ' ').slice(0, 24)) : ''}</div>
         </div>
       </div>`).join('');
   }

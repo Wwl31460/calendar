@@ -49,7 +49,7 @@ def make_splash():
 def write_color():
     with open(os.path.join(RES, "values", "ic_launcher_background.xml"), "w", encoding="utf-8") as f:
         f.write('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n'
-                '    <color name="ic_launcher_background">#5B7CFF</color>\n</resources>\n')
+                '    <color name="ic_launcher_background">#FFFFFF</color>\n</resources>\n')
     print("color ok")
 
 

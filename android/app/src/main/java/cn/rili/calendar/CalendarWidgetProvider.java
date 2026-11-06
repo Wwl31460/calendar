@@ -68,10 +68,8 @@ public class CalendarWidgetProvider extends AppWidgetProvider {
         int d = now.get(Calendar.DAY_OF_MONTH);
 
         RemoteViews rv = new RemoteViews(context.getPackageName(), R.layout.widget_calendar);
+        rv.setTextViewText(R.id.widget_day, m + "月" + d + "日");
         rv.setTextViewText(R.id.widget_week, Lunar.weekdayCn(y, m, d));
-        rv.setTextViewText(R.id.widget_day, String.valueOf(d));
-        String lunar = Lunar.monthDayText(y, m, d);
-        rv.setTextViewText(R.id.widget_lunar, lunar.isEmpty() ? (m + "月") : lunar);
 
         Intent open = new Intent(context, MainActivity.class);
         open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
