@@ -5,7 +5,7 @@
 
 - 代码仓库：<https://github.com/Wwl31460/calendar>
 - 最新安装包：<https://github.com/Wwl31460/calendar/releases/latest>
-- 国内加速下载（当前 v1.1.1）：<https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.1.1/calendar-v1.1.1.apk>
+- 国内加速下载（当前 v1.1.2）：<https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.1.2/calendar-v1.1.2.apk>
 
 ---
 
@@ -25,13 +25,13 @@
 
 ### 方式 A：直接装 APK（推荐）
 
-安装包：`dist/calendar-v1.1.1.apk`（3.41 MB，已签名），或直接从 Release 下载：
+安装包：`dist/calendar-v1.1.2.apk`（3.41 MB，已签名），或直接从 Release 下载：
 
 | 通道 | 链接 |
 | --- | --- |
-| 内网加速（推荐，国内直连可用） | <https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.1.1/calendar-v1.1.1.apk> |
-| 备用加速 | <https://gh-proxy.com/https://github.com/Wwl31460/calendar/releases/download/v1.1.1/calendar-v1.1.1.apk> |
-| GitHub 原始地址 | <https://github.com/Wwl31460/calendar/releases/download/v1.1.1/calendar-v1.1.1.apk> |
+| 内网加速（推荐，国内直连可用） | <https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.1.2/calendar-v1.1.2.apk> |
+| 备用加速 | <https://gh-proxy.com/https://github.com/Wwl31460/calendar/releases/download/v1.1.2/calendar-v1.1.2.apk> |
+| GitHub 原始地址 | <https://github.com/Wwl31460/calendar/releases/download/v1.1.2/calendar-v1.1.2.apk> |
 
 1. 手机上打开上面的链接下载 APK（微信里可能被拦，用浏览器打开）。
 2. 点击安装，系统提示「未知来源应用」时选择**允许**。
@@ -172,7 +172,7 @@ node scripts/push-github.mjs      # 推送（git 不通时用这个）
 
 ### 更新日志
 
-**v1.1.1（2026-11-06）**
+**v1.1.2（2026-11-06）**
 
 - 修复「下载完提示解码出错 / 装不上」：下载完成后会先校验文件大小、ZIP 结构、包名、签名与版本号，不合格自动换源重试，不再把半截文件或网页当安装包丢给系统
 - 下载改为**断点续传**：连接被掐断时保留已下部分，用 HTTP Range 接着下，不再从头重来
