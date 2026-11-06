@@ -5,7 +5,7 @@
 
 - 代码仓库：<https://github.com/Wwl31460/calendar>
 - 最新安装包：<https://github.com/Wwl31460/calendar/releases/latest>
-- 国内加速下载（当前 v1.2.0）：<https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.2.0/calendar-v1.2.0.apk>
+- 国内加速下载（当前 v1.2.1）：<https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.2.1/calendar-v1.2.1.apk>
 
 ---
 
@@ -25,15 +25,17 @@
 
 ### 方式 A：直接装 APK（推荐）
 
-安装包：`dist/calendar-v1.2.0.apk`（3.36 MB，已签名），或直接从 Release 下载：
+安装包：`dist/calendar-v1.2.1.apk`（3.36 MB，已签名），或直接从 Release 下载：
 
 | 通道 | 链接 |
 | --- | --- |
-| 内网加速（推荐，国内直连可用） | <https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.2.0/calendar-v1.2.0.apk> |
-| 备用加速 | <https://gh-proxy.com/https://github.com/Wwl31460/calendar/releases/download/v1.2.0/calendar-v1.2.0.apk> |
-| GitHub 原始地址 | <https://github.com/Wwl31460/calendar/releases/download/v1.2.0/calendar-v1.2.0.apk> |
+| 内网加速（推荐，国内直连可用） | <https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.2.1/calendar-v1.2.1.apk> |
+| 备用加速 ① | <https://gh-proxy.com/https://github.com/Wwl31460/calendar/releases/download/v1.2.1/calendar-v1.2.1.apk> |
+| 备用加速 ② | <https://ghproxy.net/https://github.com/Wwl31460/calendar/releases/download/v1.2.1/calendar-v1.2.1.apk> |
+| GitHub 原始地址 | <https://github.com/Wwl31460/calendar/releases/download/v1.2.1/calendar-v1.2.1.apk> |
 
-1. 手机上打开上面的链接下载 APK（微信里可能被拦，用浏览器打开）。
+1. 手机上打开上面的链接下载 APK（**别在微信里下**，用手机自带浏览器 / Chrome / 夸克）。
+   一个通道卡住就换另一个：表格里 3 个加速通道任选，实在不行再用 GitHub 原始地址。
 2. 点击安装，系统提示「未知来源应用」时选择**允许**。
 3. 首次打开允许「通知」权限，提醒才能弹出来。
 4. 若「检查更新」提示需要「安装未知应用」权限，按引导打开开关即可。
@@ -172,6 +174,18 @@ node scripts/push-github.mjs      # 推送（git 不通时用这个）
 > 只能卸载旧版重装（会丢数据，需先导出备份）。密钥位置见下方「签名」章节，请务必备份。
 
 ### 更新日志
+
+**v1.2.1（2026-11-06）**
+
+- 修复**「下载到 2% 就不动了」**：那个 2% 只是初始显示值，真实原因是镜像「连上了但不给数据」——旧下载器 40 秒内收到 1 个字节就不算超时，进度条就永远停住
+- 下载器重写为独立的 `ApkDownloader`：
+  - **停滞检测**：12 秒拿不到 20KB 就判定该源卡死，断开、换源，并从已下载位置**续传**
+  - **分块并发**：3.5MB 切成 4 段同时下（各自独立 Range / 重试 / 换源），镜像按连接限速时快 2~4 倍（实测单连接 30s → 并发 15s）
+  - **下载前测速**：各源先拉 48KB 计时，最快的优先（避免把 8KB/s 的源当主源，那种情况 3.5MB 要下 110 秒）
+  - 新增第三个镜像 `ghproxy.net`，官方直连作为最后兜底
+- 进度显示：`0% · 正在连接下载源…` → `1.42 MB / 3.36 MB · 186 KB/s`，卡住 15 秒提示「正在自动换源续传」
+- 下载失败弹窗列出 **4 个下载通道**，一个卡住就换下一个，不用再自己拼链接
+- 用 JDK 自带 HTTP server 模拟「发 70KB 后沉默 / 限速 8KB/s / 不认 Range / 全部卡死」四种坏镜像做压测，四种情况均能自愈或给出准确原因
 
 **v1.2.0（2026-11-06）**
 

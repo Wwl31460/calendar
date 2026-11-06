@@ -155,150 +155,48 @@ public class AppUpdaterPlugin extends Plugin {
                     return;
                 }
                 File apk = new File(dir, fileName);
+                // 每次都从干净文件开始；分块内部自己断点续传
+                if (apk.exists()) apk.delete();
 
                 final String[] lastError = {"网络异常，请稍后重试"};
-                for (int i = 0; i < urls.size(); i++) {
-                    boolean ok = fetch(urls.get(i), apk, expectSize, lastError);
-                    if (ok) {
-                        final File target = apk;
-                        post(new Runnable() {
-                            @Override
-                            public void run() {
-                                install(target);
-                            }
-                        });
-                        return;
-                    }
-                    if (i < urls.size() - 1) {
-                        emitProgress(0, 0, 0);
-                    }
-                }
-                emitError(lastError[0]);
-            }
-
-            /** 下载（支持断点续传）：网络中断时保留已下载部分，下一轮接着下，避免半截文件 */
-            private boolean fetch(String url, File apk, long expectSize, String[] lastError) {
-                for (int attempt = 0; attempt < 4; attempt++) {
-                    long have = apk.exists() ? apk.length() : 0L;
-                    if (expectSize > 0 && have > expectSize) {
-                        apk.delete();
-                        have = 0L;
-                    }
-                    if (expectSize > 0 && have == expectSize) break;
-
-                    HttpURLConnection conn = null;
-                    InputStream in = null;
-                    FileOutputStream out = null;
-                    try {
-                        conn = (HttpURLConnection) new URL(url).openConnection();
-                        conn.setConnectTimeout(20000);
-                        conn.setReadTimeout(40000);
-                        conn.setInstanceFollowRedirects(true);
-                        conn.setRequestProperty("User-Agent", "CalendarApp-Android");
-                        if (have > 0) conn.setRequestProperty("Range", "bytes=" + have + "-");
-                        conn.connect();
-
-                        int code = conn.getResponseCode();
-                        if (code == 416) {              // 续传位置服务端不认，整份重来
-                            apk.delete();
-                            continue;
-                        }
-                        if (code != 200 && code != 206) {
-                            lastError[0] = "下载失败（HTTP " + code + "）";
-                            return false;
-                        }
-
-                        // 镜像偶尔返回错误网页而不是文件，网页写进 .apk 当然装不上
-                        String ctype = conn.getContentType();
-                        if (ctype != null) {
-                            String low = ctype.toLowerCase();
-                            if (low.contains("text/html") || low.contains("application/json")) {
-                                lastError[0] = "下载源返回的是网页，已自动换源";
-                                return false;
-                            }
-                        }
-
-                        boolean append = (code == 206 && have > 0);
-                        if (code == 200 && have > 0) have = 0L;   // 服务端不支持续传
-
-                        long len = (Build.VERSION.SDK_INT >= 24)
-                                ? conn.getContentLengthLong()
-                                : (long) conn.getContentLength();
-
-                        // 本次该给多少字节 + 已有字节 != 官方大小，说明这份文件是残的
-                        if (len > 0 && expectSize > 0 && have + len != expectSize) {
-                            apk.delete();
-                            lastError[0] = "下载源返回的文件不完整，已自动换源";
-                            return false;
-                        }
-
-                        in = conn.getInputStream();
-                        out = new FileOutputStream(apk, append);
-
-                        byte[] buf = new byte[16384];
-                        long done = 0;
-                        int n;
-                        int lastPct = -1;
-                        long base = have;
-                        long whole = expectSize > 0 ? expectSize : (len > 0 ? base + len : 0);
-                        while ((n = in.read(buf)) > 0) {
-                            out.write(buf, 0, n);
-                            done += n;
-                            if (whole > 0) {
-                                int pct = (int) ((base + done) * 100 / whole);
-                                if (pct != lastPct) {
-                                    lastPct = pct;
-                                    emitProgress(pct / 100.0, base + done, whole);
+                boolean ok = false;
+                try {
+                    ApkDownloader.Result r = ApkDownloader.download(urls, apk, expectSize,
+                            new ApkDownloader.Listener() {
+                                @Override
+                                public void onProgress(long loaded, long total) {
+                                    emitProgress(total > 0 ? (double) loaded / total : 0, loaded, total);
                                 }
-                            }
+                            });
+                    if (r.ok) {
+                        // 下载完整不代表能装：包名 / 签名 / ZIP 结构都要对
+                        String bad = validateApk(apk);
+                        if (bad != null) {
+                            apk.delete();
+                            lastError[0] = bad;
+                        } else {
+                            apk.setReadable(true, false);
+                            emitProgress(1.0, apk.length(), apk.length());
+                            ok = true;
                         }
-                        out.flush();
-                        out.close();
-                        out = null;
-                        in.close();
-                        in = null;
-
-                        // 被掐断：保留已下部分，下一轮用 Range 接着下
-                        if (expectSize > 0 && apk.length() < expectSize) continue;
-                        if (expectSize == 0 && len > 0 && done < len) continue;
-                        break;
-                    } catch (Exception e) {
-                        String msg = e.getMessage();
-                        lastError[0] = (msg == null || msg.isEmpty()) ? "网络中断，正在重试" : msg;
-                        // 网络异常也走下一轮续传
-                    } finally {
-                        try {
-                            if (out != null) out.close();
-                        } catch (Exception ignored) {
-                        }
-                        try {
-                            if (in != null) in.close();
-                        } catch (Exception ignored) {
-                        }
-                        if (conn != null) conn.disconnect();
+                    } else if (r.error != null && !r.error.isEmpty()) {
+                        lastError[0] = r.error;
                     }
+                } catch (Exception e) {
+                    String msg = e.getMessage();
+                    lastError[0] = (msg == null || msg.isEmpty()) ? "网络异常，请稍后重试" : msg;
                 }
-
-                if (!apk.exists() || apk.length() < 32768) {
-                    lastError[0] = "安装包没有下载完整";
-                    return false;
+                if (ok) {
+                    final File target = apk;
+                    post(new Runnable() {
+                        @Override
+                        public void run() {
+                            install(target);
+                        }
+                    });
+                } else {
+                    emitError(lastError[0]);
                 }
-                if (expectSize > 0 && apk.length() != expectSize) {
-                    long got = apk.length();
-                    apk.delete();
-                    lastError[0] = "下载不完整（" + got + "/" + expectSize + " 字节）";
-                    return false;
-                }
-                String bad = validateApk(apk);
-                if (bad != null) {
-                    apk.delete();
-                    lastError[0] = bad;
-                    return false;
-                }
-
-                apk.setReadable(true, false);
-                emitProgress(1.0, apk.length(), apk.length());
-                return true;
             }
         }).start();
 

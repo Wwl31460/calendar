@@ -3,8 +3,8 @@ import { $, h, icon, openSheet, toast } from './ui.js';
 import { esc } from './utils.js';
 
 /* 版本号：由 scripts/bump.mjs 统一维护，同时写入 android/app/build.gradle */
-export const APP_VERSION = '1.2.0';
-export const VERSION_CODE = 6;
+export const APP_VERSION = '1.2.1';
+export const VERSION_CODE = 7;
 
 export const REPO = 'Wwl31460/calendar';
 export const RELEASES_API = `https://api.github.com/repos/${REPO}/releases/latest`;
@@ -198,9 +198,20 @@ export function promptUpdate(result) {
 }
 
 /* 国内直连 github.com 的 Release 下载常被阻断（实测 19s 超时），因此镜像优先、官方兜底。
-   实测这些镜像会返回「200 + 半截文件」，所以原生侧下载后必须校验大小与包结构，
-   不通过就换下一个源。 */
-export const MIRRORS = ['https://ghfast.top/', 'https://gh-proxy.com/', ''];
+   实测镜像会「连上了但不给数据」或限速到几 KB/s，所以原生侧必须能识别停滞并自动换源，
+   并且对大包走分块并发（单连接被限速时，多连接能显著提速）。 */
+export const MIRRORS = [
+  'https://ghfast.top/',
+  'https://gh-proxy.com/',
+  'https://ghproxy.net/',
+  ''
+];
+
+/** 镜像短名，用于界面上告诉用户正在用哪个源 */
+export const mirrorName = u => {
+  if (!u) return '直连';
+  try { return new URL(u).host; } catch (e) { return u; }
+};
 
 export function downloadCandidates(url) {
   const list = [];
@@ -214,27 +225,45 @@ export function downloadCandidates(url) {
 /** 下载或安装失败时让用户自己用浏览器重来一遍，比反复重试更靠谱 */
 function offerManualDownload(apk, reason, opts) {
   const o = opts || {};
+  const links = downloadCandidates(apk.url, apk.name);
+  const rows = links.map((u, i) => `
+    <button class="upd-mirror" data-i="${i}">
+      <span class="grow">${esc(u ? mirrorName(u) : 'github.com 直连')}</span>
+      <span class="val">${i === 0 ? '推荐' : i === links.length - 1 ? '直连' : '备用'}</span>
+    </button>`).join('');
+
   openSheet({
     title: o.title || '下载失败',
     body: `<div class="upd">
       <div class="upd-badge warn">${icon('warn', 'ico')}</div>
       <b style="font-size:14.5px">${esc(o.heading || '安装包没有下载完整')}</b>
       <p class="hint" style="margin-top:8px;line-height:1.7">${esc(reason || '网络中断，文件没下全')}<br>
-      ${esc(o.advice || '已自动换过多个下载源仍未成功，建议改用浏览器下载同名安装包。')}</p>
+      ${esc(o.advice || '已自动换过多个下载源仍未成功，点下面的任意一个通道用浏览器下载。')}</p>
       <div class="upd-file">
         ${icon('file', 'ico')}
         <div class="grow">${esc(apk.name || 'calendar.apk')}</div>
         <span class="val">${fmtSize(apk.size)}</span>
       </div>
+      <p class="hint" style="margin-top:12px;margin-bottom:0">下载通道（一个卡住就换下一个）：</p>
+      <div class="upd-mirrors">${rows}</div>
       <p class="hint" style="margin-top:10px">下载完成后请确认文件大小是 <b>${apk.size ? apk.size.toLocaleString('en-US') + ' 字节' : '与服务端一致'}</b>，再点击安装。</p>
     </div>`,
+    onMount: (el, close) => {
+      el.querySelectorAll('.upd-mirror').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const u = links[Number(btn.dataset.i)];
+          close();
+          window.open(u, '_blank');
+        });
+      });
+    },
     actions: [
       { text: '关闭', variant: 'secondary', onClick: c => c() },
       {
         text: '用浏览器下载',
         onClick: c => {
           c();
-          window.open(downloadCandidates(apk.url, apk.name)[0], '_blank');
+          window.open(links[0], '_blank');
         }
       }
     ]
@@ -257,6 +286,8 @@ async function downloadAndInstall(apk) {
           <b>正在下载更新</b>
           <span id="dl-pct">0%</span>
           <div class="upd-bar"><i id="dl-bar"></i></div>
+          <p class="hint" id="dl-sub">正在连接下载源…</p>
+          <p class="hint" id="dl-note" style="color:var(--warn,#d98324);display:none"></p>
           <p class="hint">请保持 App 在前台，下载完成后会自动弹出安装</p>
         </div>
       </div>
@@ -271,36 +302,84 @@ async function downloadAndInstall(apk) {
     if (t) t.textContent = `${pct}%`;
   };
 
+  const fmtKB = b => (b >= 1048576 ? `${(b / 1048576).toFixed(2)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+  const subEl = bar.querySelector('#dl-sub');
+  const noteEl = bar.querySelector('#dl-note');
+
   let sub = null;
+  let lastAt = Date.now();
+  let lastLoaded = 0;
+  let lastT = Date.now();
+  let curPct = 0;
+
+  // 卡住检测：15 秒没有任何新字节就提示「正在换源」，让用户知道不是死机
+  const tick = setInterval(() => {
+    const idle = Date.now() - lastAt;
+    if (!noteEl || curPct >= 100) return;
+    if (idle > 15000) {
+      noteEl.style.display = 'block';
+      noteEl.textContent = '这个下载源卡住了，正在自动换源续传…';
+    }
+  }, 2000);
+
+  const dropBar = () => {
+    clearInterval(tick);
+    bar.remove();
+  };
+
   try {
     sub = await P.addListener('downloadProgress', d => {
-      setPct(Math.max(0, Math.min(100, Math.round((d.progress || 0) * 100))));
+      const loaded = d.loaded || 0;
+      const total = d.total || 0;
+      const pct = Math.max(0, Math.min(100, Math.round((d.progress || 0) * 100)));
+      curPct = pct;
+      setPct(pct);
+
+      const now = Date.now();
+      const dt = (now - lastT) / 1000;
+      if (dt >= 0.5 && loaded !== lastLoaded) {
+        const speed = Math.max(0, (loaded - lastLoaded) / dt);
+        lastLoaded = loaded;
+        lastT = now;
+        if (subEl) {
+          subEl.textContent = total > 0
+            ? `${fmtKB(loaded)} / ${fmtKB(total)} · ${fmtKB(speed)}/s`
+            : `${fmtKB(loaded)} · ${fmtKB(speed)}/s`;
+        }
+      } else if (subEl && !subEl.textContent.includes('/')) {
+        subEl.textContent = total > 0 ? `${fmtKB(loaded)} / ${fmtKB(total)}` : fmtKB(loaded);
+      }
+      lastAt = now;
+      if (noteEl) {
+        noteEl.style.display = 'none';
+        noteEl.textContent = '';
+      }
     });
   } catch (e) { /* 忽略 */ }
 
   try {
     await P.addListener('installPermissionNeeded', () => {
-      bar.remove();
+      dropBar();
       toast('请允许「安装未知应用」后再次点击更新', 4000);
     });
     await P.addListener('installStarted', () => {
-      bar.remove();
+      dropBar();
     });
     // 系统安装会话的结果：确认 / 成功 / 失败
     await P.addListener('installResult', d => {
       const kind = (d && d.kind) || '';
       const msg = (d && d.message) || '';
       if (kind === 'success') {
-        bar.remove();
+        dropBar();
         toast('安装完成', 2500);
         return;
       }
       if (kind === 'confirm') {
-        bar.remove();
+        dropBar();
         toast(msg || '请在系统窗口中确认安装', 3500);
         return;
       }
-      bar.remove();
+      dropBar();
       if (sub) sub.remove && sub.remove();
       offerManualDownload(apk, msg || '系统未能完成安装', {
         title: '安装没有完成',
@@ -309,7 +388,7 @@ async function downloadAndInstall(apk) {
       });
     });
     await P.addListener('downloadError', d => {
-      bar.remove();
+      dropBar();
       if (sub) sub.remove && sub.remove();
       offerManualDownload(apk, (d && d.message) || '');
     });
@@ -318,7 +397,7 @@ async function downloadAndInstall(apk) {
   try {
     const info = await P.canInstall();
     if (info && info.value === false) {
-      bar.remove();
+      dropBar();
       const ok = await new Promise(resolve => {
         openSheet({
           title: '需要安装权限',
@@ -335,7 +414,8 @@ async function downloadAndInstall(apk) {
       return;
     }
 
-    setPct(2);
+    setPct(0);
+    lastAt = Date.now();
     await P.downloadAndInstall({
       urls: downloadCandidates(url, apk.name),
       url,
@@ -343,7 +423,7 @@ async function downloadAndInstall(apk) {
       expectSize: apk.size || 0
     });
   } catch (e) {
-    bar.remove();
+    dropBar();
     if (sub) sub.remove && sub.remove();
     toast('更新失败，请稍后再试');
   }

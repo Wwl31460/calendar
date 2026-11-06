@@ -1,4 +1,7 @@
 import { chromium } from 'playwright';
+import fs from 'node:fs';
+
+const PKG_VERSION = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 const CHROME = 'C:/Users/LENOVO/AppData/Local/ms-playwright/chromium-1148/chrome-win/chrome.exe';
 const browser = await chromium.launch({ executablePath: CHROME });
@@ -74,7 +77,7 @@ const aboutText = await page.evaluate(async () => {
   return document.querySelector('#settings-body').innerText;
 });
 ok('识别为安卓版', aboutText.includes('安卓版'));
-ok('显示当前版本 1.0.0', aboutText.includes('v1.0.0'));
+ok('显示当前版本 ' + PKG_VERSION, aboutText.includes('v' + PKG_VERSION));
 
 // 2) 检查更新 → 出现「立即更新」
 await page.click('[data-row="update"]');
@@ -92,9 +95,10 @@ await page.evaluate(() => {
 await page.waitForTimeout(600);
 const payload = await page.evaluate(() => window.__payload);
 ok('已调用原生下载', !!payload, payload ? payload.fileName : '未调用');
-ok('携带直连地址', payload && payload.urls[0].startsWith('https://github.com/'), payload && payload.urls[0].slice(0, 52));
-ok('携带加速镜像回退', payload && payload.urls.length >= 2, payload && payload.urls.slice(1).join(' , '));
-ok('文件名固定', payload && payload.fileName === 'calendar-update.apk');
+ok('镜像优先（国内直连常被挡）', payload && payload.urls[0].startsWith('https://ghfast.top/'), payload && payload.urls[0].slice(0, 52));
+ok('多个加速镜像可回退', payload && payload.urls.length >= 3, payload && payload.urls.slice(1).join(' , '));
+ok('直连作为最后兜底', payload && payload.urls[payload.urls.length - 1].startsWith('https://github.com/'), payload && payload.urls[payload.urls.length - 1].slice(0, 46));
+ok('文件名带 .apk', payload && /\.apk$/.test(payload.fileName || ''), payload && payload.fileName);
 
 // 4) 进度事件
 await page.evaluate(() => window.__listen.downloadProgress && window.__listen.downloadProgress({ progress: 0.42 }));
@@ -134,9 +138,14 @@ await page.evaluate(() => {
 });
 await page.waitForTimeout(500);
 await page.evaluate(() => window.__listen.downloadError && window.__listen.downloadError({ message: '下载失败（HTTP 404）' }));
-await page.waitForTimeout(600);
-const toastText = await page.evaluate(() => document.querySelector('.toast')?.innerText.trim());
-ok('下载失败有提示', !!toastText && toastText.includes('404'), toastText || '无提示');
+await page.waitForTimeout(700);
+const dlFail = await page.evaluate(() => ({
+  title: document.querySelector('.sheet-head h2')?.textContent.trim(),
+  reason: document.querySelector('.upd .hint')?.innerText.replace(/\s+/g, ' ').trim(),
+  mirrors: Array.from(document.querySelectorAll('.upd-mirror')).map(b => b.textContent.replace(/\s+/g, ' ').trim())
+}));
+ok('下载失败有提示', dlFail.title === '下载失败' && /404/.test(dlFail.reason || ''), String(dlFail.reason || '').slice(0, 60));
+ok('失败时给出多个下载通道', dlFail.mirrors.length >= 3, dlFail.mirrors.join(' / '));
 
 // 8) Service Worker 不应在 APK 内注册
 const swCount = await page.evaluate(() => navigator.serviceWorker.getRegistrations().then(r => r.length));
