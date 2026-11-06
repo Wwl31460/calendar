@@ -29,6 +29,18 @@ export function toast(msg, ms = 2200) {
 
 let openCount = 0;
 
+/** 立即收起所有提示（用于长任务完成后不再压住弹层） */
+export function hideToast() {
+  const root = $('#toast-root');
+  if (!root) return;
+  [...root.children].forEach(el => {
+    el.style.transition = 'opacity .18s, transform .18s';
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(6px)';
+    setTimeout(() => el.remove(), 200);
+  });
+}
+
 /**
  * 底部弹层
  * @param {{title?:string, subtitle?:string, body?:string|Element, actions?:Array, onMount?:Function, onClose?:Function}} opts

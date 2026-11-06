@@ -1,9 +1,11 @@
 /* ---------- 课表视图 ---------- */
 import { addCourse, db, persist, removeCourse, setSetting } from '../store.js';
 import { COURSE_COLORS, currentWeek, formatRange, guessSemesterStart, periodTime, weekDates, weeksLabel } from '../schedule.js';
-import { $, confirmSheet, emptyState, h, icon, openSheet, toast } from '../ui.js';
+import { $, confirmSheet, emptyState, h, hideToast, icon, openSheet, toast } from '../ui.js';
 import { openCourseForm } from '../forms.js';
 import { parseLooseText, parsePdfFile } from '../pdf-parse.js';
+import { loadPdfFile, pdfMeta, removePdfFile, savePdfFile, storageReady } from '../pdf-doc.js';
+import { openPdfViewer } from '../pdf-viewer.js';
 import { esc, startOfWeek, todayStr, ymd } from '../utils.js';
 
 let viewWeek = null;
@@ -39,6 +41,7 @@ export function render() {
     wrap.innerHTML = setupEmpty();
     $('#tt-empty-import').addEventListener('click', openImportSheet);
     $('#tt-empty-sem').addEventListener('click', openSemesterSheet);
+    renderPdfCard();
     return;
   }
 
@@ -102,6 +105,58 @@ export function render() {
   $('#tt-legend').innerHTML = active.length
     ? `<div class="tt-sum">本周 ${active.length} 节课 · ${names.size} 门课程${week === currentWeek() ? ' · 点击课程可编辑' : ''}</div>`
     : `<div class="tt-sum">本周没有课程安排</div>`;
+
+  renderPdfCard();
+}
+
+/* ---------------- 已保存的课表 PDF（不绑定日期） ---------------- */
+function renderPdfCard() {
+  const box = $('#tt-pdf');
+  if (!box) return;
+  const meta = pdfMeta();
+  if (!meta) { box.innerHTML = ''; return; }
+
+  const d = new Date(meta.savedAt);
+  const date = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+  const size = meta.size > 1024 * 1024
+    ? (meta.size / 1024 / 1024).toFixed(1) + ' MB'
+    : Math.max(1, Math.round(meta.size / 1024)) + ' KB';
+
+  box.innerHTML = `<div class="tt-pdf-card">
+    <div class="pd-ico">${icon('file')}</div>
+    <div class="grow">
+      <div class="t1">${esc(meta.name)}</div>
+      <div class="t2">${date} 保存 · ${size}</div>
+    </div>
+    <button class="pd-act" data-pdf="open">查看</button>
+    <button class="pd-act ghost" data-pdf="del">删除</button>
+  </div>`;
+
+  box.querySelector('[data-pdf="open"]').addEventListener('click', async () => {
+    if (!storageReady()) { toast('当前环境不支持本地文件存储'); return; }
+    toast('正在打开…', 1200);
+    try {
+      const rec = await loadPdfFile();
+      if (!rec) { toast('文件已丢失，请重新上传'); return; }
+      openPdfViewer({ data: rec.data, name: rec.name });
+    } catch (e) {
+      console.error(e);
+      toast('打开失败：' + (e.message || '未知错误'));
+    }
+  });
+
+  box.querySelector('[data-pdf="del"]').addEventListener('click', async () => {
+    const ok = await confirmSheet({
+      title: '删除课表 PDF',
+      message: '只会删除保存的原文件，已导入的课程不受影响。',
+      okText: '删除',
+      danger: true
+    });
+    if (!ok) return;
+    try { await removePdfFile(); } catch (e) { console.error(e); }
+    renderPdfCard();
+    toast('已删除');
+  });
 }
 
 /* ---------------- 学期设置 ---------------- */
@@ -143,32 +198,47 @@ export function openSemesterSheet() {
 /* ---------------- 导入 ---------------- */
 export function openImportSheet() {
   const body = h(`<div>
-    <p class="hint" style="margin-top:0">支持教务系统导出的 PDF 课表，自动识别星期、节次和周次；也可直接粘贴文字。</p>
-    <button class="btn" id="pick-pdf" style="width:100%;margin-top:14px">${icon('file')}&nbsp;选择 PDF 文件</button>
+    <p class="hint" style="margin-top:0">可以从 PDF 的文字层识别课程并排进周次；也可以把 PDF 原文件直接存进 App，随时翻看。</p>
+    <button class="btn" id="pick-pdf" style="width:100%;margin-top:14px">${icon('file')}&nbsp;选择 PDF 并识别课程</button>
+    <button class="btn secondary" id="pick-pdf-view" style="width:100%;margin-top:10px">${icon('book2')}&nbsp;只保存原图查看（不识别文字）</button>
     <button class="btn secondary" id="paste-text" style="width:100%;margin-top:10px">${icon('pen')}&nbsp;粘贴文字课表</button>
     <input type="file" accept="application/pdf,.pdf,application/octet-stream" id="pdf-input" hidden />
-    <p class="hint" style="margin-top:14px">识别效果取决于 PDF 是否为文字版（图片扫描件无法识别）。导入后可随时点课程块修改。</p>
+    <p class="hint" style="margin-top:14px">扫描件、或内嵌字体缺少映射的 PDF 提不出文字，用「只保存原图查看」即可：文件会留在课表页底部，不受日期与周次影响。</p>
   </div>`);
 
   const sheet = openSheet({ title: '导入课表', body });
+  let viewMode = false;
 
-  body.querySelector('#pick-pdf').addEventListener('click', () => body.querySelector('#pdf-input').click());
+  body.querySelector('#pick-pdf').addEventListener('click', () => {
+    viewMode = false;
+    body.querySelector('#pdf-input').click();
+  });
+  body.querySelector('#pick-pdf-view').addEventListener('click', () => {
+    viewMode = true;
+    body.querySelector('#pdf-input').click();
+  });
 
   body.querySelector('#pdf-input').addEventListener('change', async e => {
     const file = e.target.files && e.target.files[0];
+    e.target.value = '';
     if (!file) return;
-    toast('正在解析 PDF…', 2500);
+    if (viewMode) { sheet.close(); saveAndView(file); return; }
+
+    toast('正在解析 PDF…', 3000);
     try {
       const result = await parsePdfFile(file);
+      hideToast();
       sheet.close();
-      if (!result.courses || !result.courses.length) {
-        openTextFallback('未能从 PDF 中识别出课程结构，可改用粘贴文字导入。');
+      if (result.mode === 'image' || !result.courses || !result.courses.length) {
+        openImageOffer(file, result);
       } else {
         openPreview(result.courses, result.mode);
       }
     } catch (err) {
       console.error(err);
-      toast('解析失败：' + (err.message || '文件无法读取'));
+      hideToast();
+      sheet.close();
+      openImageOffer(file, { error: err.message || '文件无法读取' });
     }
   });
 
@@ -176,6 +246,42 @@ export function openImportSheet() {
     sheet.close();
     openTextFallback();
   });
+}
+
+/** 文字层不可用时，引导保存原图 */
+function openImageOffer(file, result) {
+  const why = result && result.error
+    ? `解析出错了（${result.error}）`
+    : '没有可用的文字层（多为扫描件，或 PDF 内嵌字体缺少字符映射）';
+  const body = h(`<div>
+    <div class="banner warn">${icon('warn')}<div>这个 PDF ${esc(why)}，无法自动提取课程文字。</div></div>
+    <p class="hint">可以把原文件直接存进 App：按页渲染、可放大，随时在「课表」页底部打开，不绑定任何日期。</p>
+  </div>`);
+  openSheet({
+    title: '改为原图查看',
+    body,
+    actions: [
+      { text: '取消', variant: 'secondary', onClick: c => c() },
+      { text: '保存并查看', onClick: c => { c(); saveAndView(file); } }
+    ]
+  });
+}
+
+/** 保存 PDF 并立即打开 */
+async function saveAndView(file) {
+  if (!storageReady()) { toast('当前环境不支持本地文件存储'); return; }
+  if (file.size > 30 * 1024 * 1024) { toast('文件超过 30 MB，请压缩后再试'); return; }
+  try {
+    toast('正在保存…', 1500);
+    await savePdfFile(file);
+    renderPdfCard();
+    const rec = await loadPdfFile();
+    if (rec) openPdfViewer({ data: rec.data, name: rec.name });
+    toast('已保存，可在课表页随时查看');
+  } catch (e) {
+    console.error(e);
+    toast('保存失败：' + (e.message || '存储空间不足'));
+  }
 }
 
 function openTextFallback(tip = '') {

@@ -1,5 +1,5 @@
 /* Service Worker：离线缓存 + 通知点击 */
-const CACHE = 'calendar-app-v1.0.0';
+const CACHE = 'calendar-app-v1.1.0';
 
 const ASSETS = [
   './',
@@ -15,6 +15,8 @@ const ASSETS = [
   './js/schedule.js',
   './js/forms.js',
   './js/pdf-parse.js',
+  './js/pdf-doc.js',
+  './js/pdf-viewer.js',
   './js/theme.js',
   './js/ics.js',
   './js/updater.js',

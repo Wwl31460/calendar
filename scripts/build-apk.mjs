@@ -36,7 +36,10 @@ const match = fs.readFileSync(path.join(ROOT, 'www/js/updater.js'), 'utf8').matc
 const version = match ? match[1] : '0.0.0';
 
 // 1) 同步 web 资源到原生工程
-run(isWin ? 'npx.cmd' : 'npx', ['cap', 'sync', 'android']);
+//    默认只做 copy（网页资源 + 配置），插件有变化时加 --full 走完整 sync。
+//    完整 sync 会清空 capacitor-cordova-android-plugins/build，某些环境的安全策略会拦截批量删除。
+const full = process.argv.includes('--full');
+run(isWin ? 'npx.cmd' : 'npx', full ? ['cap', 'sync', 'android'] : ['cap', 'copy', 'android']);
 
 // 2) 编译
 run(isWin ? 'gradlew.bat' : './gradlew', ['assembleRelease', '--console=plain'], ANDROID);

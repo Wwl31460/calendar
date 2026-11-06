@@ -4,4 +4,5 @@
     <string name="title_activity_main">日历</string>
     <string name="package_name">cn.rili.calendar</string>
     <string name="custom_url_scheme">cn.rili.calendar</string>
+    <string name="widget_desc">今日星期与日期</string>
 </resources>

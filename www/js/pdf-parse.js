@@ -23,6 +23,9 @@ function ensurePdf() {
   return pdfReady;
 }
 
+/** 供阅读器复用 pdf.js 实例 */
+export function ensurePdfJs() { return ensurePdf(); }
+
 /** 读取 PDF 每页文字块（含坐标） */
 export async function extractPdfItems(arrayBuffer) {
   const pdfjs = await ensurePdf();
@@ -352,11 +355,34 @@ export function parseLooseText(text) {
   });
 }
 
+/** 判断抽取到的文字是否可用（扫描件 / 缺少 ToUnicode 的中文字体会抽不出或乱码） */
+export function textQuality(pages) {
+  let total = 0, cjk = 0, bad = 0;
+  for (const p of pages) {
+    for (const it of p.items) {
+      for (const ch of it.text) {
+        total++;
+        const c = ch.codePointAt(0);
+        if (c >= 0x4e00 && c <= 0x9fff) cjk++;
+        else if (c === 0xfffd || (c >= 0xe000 && c <= 0xf8ff)) bad++;
+      }
+    }
+  }
+  const usable = total >= 12 && cjk >= 6 && bad / Math.max(1, total) < 0.35;
+  return { total, cjk, bad, usable };
+}
+
 /** 解析整个 PDF，返回候选课程 */
 export async function parsePdfFile(file) {
   const buf = await file.arrayBuffer();
   const pages = await extractPdfItems(buf);
   const allItems = pages.flatMap(p => p.items);
+  const quality = textQuality(pages);
+
+  // 扫描件 / 字体无映射：文字层不可用，交给「PDF 原图查看」
+  if (!quality.usable) {
+    return { courses: [], mode: 'image', quality, pages: pages.length };
+  }
 
   const table = parseTable(allItems);
   let courses = table.courses || [];
@@ -369,7 +395,7 @@ export async function parsePdfFile(file) {
     }).join('\n');
     const loose = parseLooseText(text);
     if (loose.length > courses.length) {
-      return { courses: loose, mode: 'text', lines: table.lines };
+      return { courses: loose, mode: 'text', lines: table.lines, quality, pages: pages.length };
     }
   }
 
@@ -385,7 +411,9 @@ export async function parsePdfFile(file) {
     })),
     mode: 'table',
     headerInfo: table.headerInfo,
-    lines: table.lines
+    lines: table.lines,
+    quality,
+    pages: pages.length
   };
 }
 

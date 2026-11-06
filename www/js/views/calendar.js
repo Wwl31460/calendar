@@ -1,11 +1,11 @@
 /* ---------- 日历视图 ---------- */
-import { cellLabel, dayInfo, weekCn, xingzuo } from '../lunar.js';
+import { cellLabel, dayInfo, getHolidayMap, weekCn, xingzuo } from '../lunar.js';
 import { db } from '../store.js';
 import { addDays, esc, parseYmd, todayStr, ymd } from '../utils.js';
 import { openCourseForm, openNoteEditor, openReminderForm } from '../forms.js';
 import { remindersOn, repeatLabel } from '../reminder.js';
 import { COURSE_COLORS, coursesOnDate, weekOf } from '../schedule.js';
-import { $, emptyState, icon } from '../ui.js';
+import { $, emptyState, h, icon, openSheet } from '../ui.js';
 
 let viewYear = new Date().getFullYear();
 let viewMonth = new Date().getMonth();
@@ -32,7 +32,7 @@ export function goToday() {
 }
 
 function renderHeader() {
-  $('#cal-ym').textContent = `${viewYear}年${viewMonth + 1}月`;
+  $('#cal-ym').innerHTML = `${viewYear}年${viewMonth + 1}月<i class="ym-caret"></i>`;
   const monthMid = new Date(viewYear, viewMonth, 15);
   const L = dayInfo(monthMid.getFullYear(), monthMid.getMonth() + 1, 15).lunar;
   $('#cal-lunar').textContent = L ? `${L.gzYear}${L.animal}年 · 农历${L.monthName}` : '';
@@ -97,7 +97,7 @@ function agendaHTML() {
 
   const chips = [];
   const hd = info.holiday;
-  if (hd && hd.type === 'off') chips.push(`<span class="chip red">休 · ${esc(hd.name)}</span>`);
+  if (hd && hd.type === 'off') chips.push(`<span class="chip red">休 · ${esc(hd.name)}${hd.est ? '（预估）' : ''}</span>`);
   else if (hd && hd.type === 'work') chips.push('<span class="chip">调休上班</span>');
   info.festivals.forEach(f => {
     if (hd && hd.name && hd.name.includes(f)) return;
@@ -190,6 +190,7 @@ export function bind() {
   $('#cal-prev').addEventListener('click', () => changeMonth(-1));
   $('#cal-next').addEventListener('click', () => changeMonth(1));
   $('#cal-today').addEventListener('click', goToday);
+  $('#cal-ym').addEventListener('click', openMonthPicker);
 
   $('#month-grid').addEventListener('click', e => {
     const cell = e.target.closest('.cell');
@@ -220,4 +221,114 @@ function changeMonth(delta) {
   viewYear = d.getFullYear();
   viewMonth = d.getMonth();
   render(delta > 0 ? 'next' : 'prev');
+}
+
+/* ---------------- 年月快速选择 ---------------- */
+const MIN_YEAR = 1900;
+const MAX_YEAR = 2100;
+const PAGE = 12;                         // 一页显示 12 个年份
+
+const alignPage = y => Math.floor((y - MIN_YEAR) / PAGE) * PAGE + MIN_YEAR;
+
+export function openMonthPicker() {
+  let py = viewYear;
+  let pageStart = alignPage(py);
+
+  const body = h('<div class="mp"></div>');
+  const sheet = openSheet({
+    title: '选择年月',
+    subtitle: '点年份切换、点月份直接跳转，也可以输入年份精确定位',
+    body
+  });
+
+  const todayYear = new Date().getFullYear();
+
+  function draw() {
+    const hmap = getHolidayMap(py);
+    const years = [];
+    for (let y = pageStart; y < pageStart + PAGE; y++) {
+      if (y >= MIN_YEAR && y <= MAX_YEAR) years.push(y);
+    }
+    const quick = [
+      { d: -20, t: '20年前' },
+      { d: -10, t: '10年前' },
+      { d: 0, t: '今年' },
+      { d: 10, t: '10年后' }
+    ];
+
+    const months = [];
+    for (let i = 0; i < 12; i++) {
+      const mm = String(i + 1).padStart(2, '0');
+      let hasOff = false;
+      let hasWork = false;
+      for (const k in hmap) {
+        if (!k.startsWith(`${py}-${mm}`)) continue;
+        if (hmap[k].type === 'off') hasOff = true; else hasWork = true;
+      }
+      const on = py === viewYear && i === viewMonth;
+      months.push(`<button class="mp-m ${on ? 'on' : ''}" data-m="${i}">
+        <span>${i + 1}月</span>
+        ${hasOff ? '<i class="mp-dot off"></i>' : hasWork ? '<i class="mp-dot work"></i>' : ''}
+      </button>`);
+    }
+
+    body.innerHTML = `
+      <div class="mp-quick">
+        ${quick.map(q => `<button class="mp-q" data-jump="${q.d}">${q.t}</button>`).join('')}
+      </div>
+      <div class="mp-yearbar">
+        <button class="mp-arrow" data-page="-1" ${pageStart <= MIN_YEAR ? 'disabled' : ''}>${icon('left')}</button>
+        <div class="mp-years">${years.map(y => `<button class="mp-y ${y === py ? 'on' : ''}" data-y="${y}">${y}</button>`).join('')}</div>
+        <button class="mp-arrow" data-page="1" ${pageStart + PAGE > MAX_YEAR ? 'disabled' : ''}>${icon('right')}</button>
+      </div>
+      <div class="mp-yearline">
+        <span>指定年份</span>
+        <input class="mp-input" type="number" inputmode="numeric" min="${MIN_YEAR}" max="${MAX_YEAR}" value="${py}" />
+        <button class="mp-go">定位</button>
+      </div>
+      <div class="mp-months">${months.join('')}</div>`;
+
+    body.querySelectorAll('[data-jump]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        py = clampYear(todayYear + Number(btn.dataset.jump));
+        pageStart = alignPage(py);
+        draw();
+      });
+    });
+    body.querySelectorAll('[data-page]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        pageStart += Number(btn.dataset.page) * PAGE;
+        pageStart = Math.max(alignPage(MIN_YEAR), Math.min(alignPage(MAX_YEAR), pageStart));
+        draw();
+      });
+    });
+    body.querySelectorAll('[data-y]').forEach(btn => {
+      btn.addEventListener('click', () => { py = Number(btn.dataset.y); draw(); });
+    });
+    const input = body.querySelector('.mp-input');
+    const goYear = () => {
+      const v = Number(input.value);
+      if (!v || v < MIN_YEAR || v > MAX_YEAR) { input.value = py; return; }
+      py = Math.round(v);
+      pageStart = alignPage(py);
+      draw();
+    };
+    body.querySelector('.mp-go').addEventListener('click', goYear);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); goYear(); } });
+
+    body.querySelectorAll('[data-m]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const m = Number(btn.dataset.m);
+        const diff = (py - viewYear) * 12 + (m - viewMonth);
+        viewYear = py;
+        viewMonth = m;
+        sheet.close();
+        render(diff > 0 ? 'next' : diff < 0 ? 'prev' : 'none');
+      });
+    });
+  }
+
+  function clampYear(y) { return Math.min(MAX_YEAR, Math.max(MIN_YEAR, y)); }
+
+  draw();
 }

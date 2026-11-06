@@ -45,6 +45,11 @@ export function render() {
       ${row('theme', 'sun', '主题模式', themeText)}
     </div>
 
+    <div class="section-label">桌面</div>
+    <div class="list-card">
+      ${row('widget', 'grid', '桌面小组件', isNativeApp() ? '显示今日星期与日期' : '仅安卓版')}
+    </div>
+
     <div class="section-label">数据</div>
     <div class="list-card">
       ${row('export', 'download', '导出备份', 'JSON')}
@@ -58,7 +63,7 @@ export function render() {
       <div class="row"><div class="grow" style="font-size:13px;color:var(--text-2);line-height:1.65">
         日历 · ${isNativeApp() ? '安卓版' : '网页版'} v${esc(APP_VERSION)}<br>
         数据全部保存在本机，不上传云端。<br>
-        农历支持 1900-2100 年，法定节假日内置 2025-2026 官方安排。
+        农历支持 1900-2100 年，法定节假日内置 2024-2027 官方安排。
       </div></div>
     </div>
     <div style="height:20px"></div>`;
@@ -91,6 +96,17 @@ function bindRows() {
   body.querySelector('[data-row="weeks"]').addEventListener('click', () => { openSemesterSheet(); });
   body.querySelector('[data-row="update"]').addEventListener('click', openCheckSheet);
   body.querySelector('[data-row="periods"]').addEventListener('click', openPeriodSheet);
+
+  body.querySelector('[data-row="widget"]').addEventListener('click', () => {
+    const wrap = h(`<div style="font-size:13.5px;line-height:1.9;color:var(--text-2)">
+      <p style="margin:0 0 12px">桌面上有个和图标同款的 2×2 卡片，显示今天的<b>星期</b>、<b>日期</b>和<b>农历</b>，每天零点自动翻页。</p>
+      <p style="margin:0 0 6px;font-weight:600;color:var(--text)">添加方法</p>
+      <p style="margin:0 0 4px">1. 回到手机桌面，长按空白处</p>
+      <p style="margin:0 0 4px">2. 选择「小组件 / 添加工具」</p>
+      <p style="margin:0">3. 找到「日历」，拖到桌面即可</p>
+    </div>`);
+    openSheet({ title: '桌面小组件', body: wrap, actions: [{ text: '知道了', onClick: c => c() }] });
+  });
 
   body.querySelector('[data-row="theme"]').addEventListener('click', () => {
     const wrap = h('<div></div>');

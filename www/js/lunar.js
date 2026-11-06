@@ -187,8 +187,21 @@ export function getTermName(y, m, d) {
 }
 
 /* ---------------- 法定节假日 ---------------- */
-/* 官方公布的放假 / 调休上班安排（off=放假，work=调休上班） */
+/* 官方公布的放假 / 调休上班安排（off=放假，work=调休上班）
+   2024-2027 来自国务院办公厅通知原文；其余年份按法定规则推算 */
 const OFFICIAL = {
+  2024: {
+    off: [
+      ['2024-01-01', '2024-01-01', '元旦'],
+      ['2024-02-10', '2024-02-17', '春节'],
+      ['2024-04-04', '2024-04-06', '清明节'],
+      ['2024-05-01', '2024-05-05', '劳动节'],
+      ['2024-06-10', '2024-06-10', '端午节'],
+      ['2024-09-15', '2024-09-17', '中秋节'],
+      ['2024-10-01', '2024-10-07', '国庆节']
+    ],
+    work: ['2024-02-04', '2024-02-18', '2024-04-07', '2024-04-28', '2024-05-11', '2024-09-14', '2024-09-29', '2024-10-12']
+  },
   2025: {
     off: [
       ['2025-01-01', '2025-01-01', '元旦'],
@@ -211,6 +224,18 @@ const OFFICIAL = {
       ['2026-10-01', '2026-10-07', '国庆节']
     ],
     work: ['2026-01-04', '2026-02-14', '2026-02-28', '2026-05-09', '2026-09-20', '2026-10-10']
+  },
+  2027: {
+    off: [
+      ['2027-01-01', '2027-01-03', '元旦'],
+      ['2027-02-05', '2027-02-13', '春节'],
+      ['2027-04-03', '2027-04-05', '清明节'],
+      ['2027-05-01', '2027-05-05', '劳动节'],
+      ['2027-06-09', '2027-06-09', '端午节'],
+      ['2027-09-15', '2027-09-15', '中秋节'],
+      ['2027-10-01', '2027-10-07', '国庆节']
+    ],
+    work: ['2027-01-31', '2027-02-14', '2027-05-08', '2027-09-26', '2027-10-09']
   }
 };
 
@@ -218,41 +243,101 @@ const pad2 = n => (n < 10 ? '0' + n : '' + n);
 const dstr = (y, m, d) => `${y}-${pad2(m)}-${pad2(d)}`;
 const _holidayCache = {};
 
+/* ---------- 无官方数据年份：按法定规则推算连续假期块 ---------- */
+const utcDate = (y, m, d) => new Date(Date.UTC(y, m - 1, d));
+const shiftDay = (dt, n) => new Date(dt.getTime() + n * DAY_MS);
+const isWeekend = dt => dt.getUTCDay() === 0 || dt.getUTCDay() === 6;
+
+/** 向两侧吸收紧邻的周末；若收尾落在周日，再把周一并进来（常见调休做法） */
+function absorbWeekend(s, e) {
+  let a = s, b = e;
+  let guard = 0;
+  while (isWeekend(shiftDay(a, -1)) && guard++ < 3) a = shiftDay(a, -1);
+  guard = 0;
+  while (isWeekend(shiftDay(b, 1)) && guard++ < 3) b = shiftDay(b, 1);
+  if (b.getUTCDay() === 0) b = shiftDay(b, 1);
+  return [a, b];
+}
+
+function estimateBlocks(year, lunarOf) {
+  const blocks = [];
+  const add = (s, e, name, cap, min) => {
+    let end = e;
+    if (min && Math.round((end - s) / DAY_MS) + 1 < min) end = shiftDay(s, min - 1);
+    if (cap && Math.round((end - s) / DAY_MS) + 1 > cap) end = shiftDay(s, cap - 1);
+    blocks.push({ s, e: end, name });
+  };
+  const ranged = (s, e, name, cap, min) => { const [a, b] = absorbWeekend(s, e); add(a, b, name, cap, min); };
+
+  // 元旦：1/1（含前后周末，上限 3 天）
+  ranged(utcDate(year, 1, 1), utcDate(year, 1, 1), '元旦', 3);
+
+  // 春节：除夕 → 正月初六，通常 8-9 天
+  const cj = lunarOf(year, 1, 1);              // 正月初一
+  if (cj) {
+    const eve = shiftDay(utcDate(cj.y, cj.m, cj.d), -1);
+    ranged(eve, shiftDay(eve, 6), '春节', 9, 8);
+  }
+
+  // 清明：节气当日，通常 3 天
+  const qm = solarTermsOfMonth(year, 4).find(t => t.name === '清明');
+  if (qm) ranged(utcDate(year, 4, qm.day), utcDate(year, 4, qm.day), '清明节', 3, 3);
+
+  // 劳动节：5/1 - 5/5 固定 5 天
+  add(utcDate(year, 5, 1), utcDate(year, 5, 5), '劳动节', 5);
+
+  // 端午 / 中秋：当日 + 相邻周末（上限 3 天）
+  const dw = lunarOf(year, 5, 5);
+  if (dw) ranged(utcDate(dw.y, dw.m, dw.d), utcDate(dw.y, dw.m, dw.d), '端午节', 3);
+  const zq = lunarOf(year, 8, 15);
+  if (zq) ranged(utcDate(zq.y, zq.m, zq.d), utcDate(zq.y, zq.m, zq.d), '中秋节', 3);
+
+  // 国庆：10/1 - 10/7 固定 7 天（若与中秋重叠则合并称呼）
+  const zqKey = zq ? dstr(zq.y, zq.m, zq.d) : '';
+  const overlap = zqKey >= dstr(year, 10, 1) && zqKey <= dstr(year, 10, 7);
+  add(utcDate(year, 10, 1), utcDate(year, 10, 7), overlap ? '国庆节·中秋节' : '国庆节', 7);
+
+  return blocks;
+}
+
 /**
- * 某年的节假日表： { '2026-02-17': {type:'off'|'work', name:'春节'} }
- * 无官方数据年份按法定规则推算（不含调休）
+ * 某年的节假日表： { '2026-02-17': {type:'off'|'work', name:'春节', est?:true} }
+ * 有官方数据用官方安排，其余年份按法定规则推算（不含调休上班日）
  */
 export function getHolidayMap(year) {
   if (_holidayCache[year]) return _holidayCache[year];
   const map = {};
   const official = OFFICIAL[year];
+  const paint = (cur, end, name, est) => {
+    while (cur <= end) {
+      map[dstr(cur.getUTCFullYear(), cur.getUTCMonth() + 1, cur.getUTCDate())] = { type: 'off', name, est };
+      cur = shiftDay(cur, 1);
+    }
+  };
+
   if (official) {
     for (const [s, e, name] of official.off) {
-      let cur = new Date(s.replace(/-/g, '/') + ' 00:00:00');
-      const end = new Date(e.replace(/-/g, '/') + ' 00:00:00');
-      while (cur <= end) {
-        map[dstr(cur.getFullYear(), cur.getMonth() + 1, cur.getDate())] = { type: 'off', name };
-        cur = new Date(cur.getTime() + DAY_MS);
-      }
+      const a = s.split('-').map(Number), b = e.split('-').map(Number);
+      paint(utcDate(a[0], a[1], a[2]), utcDate(b[0], b[1], b[2]), name, false);
     }
     for (const w of official.work) map[w] = { type: 'work', name: '调休上班' };
   } else {
-    // 规则推算：仅法定当日
-    const put = (y, m, d, name) => { if (m >= 1 && m <= 12) map[dstr(y, m, d)] = { type: 'off', name }; };
-    put(year, 1, 1, '元旦');
-    put(year, 5, 1, '劳动节');
-    put(year, 10, 1, '国庆节'); put(year, 10, 2, '国庆节'); put(year, 10, 3, '国庆节');
-    const cj = lunar2solar(year, 1, 1); if (cj) { put(cj.y, cj.m, cj.d, '春节'); }
-    const dw = lunar2solar(year, 5, 5); if (dw) put(dw.y, dw.m, dw.d, '端午节');
-    const zq = lunar2solar(year, 8, 15); if (zq) put(zq.y, zq.m, zq.d, '中秋节');
-    const qm = solarTermsOfMonth(year, 4).find(t => t.name === '清明');
-    if (qm) put(year, 4, qm.day, '清明节');
+    for (const b of estimateBlocks(year, lunar2solar)) paint(b.s, b.e, b.name, true);
   }
   _holidayCache[year] = map;
   return map;
 }
 
 /* ---------------- 节日聚合 ---------------- */
+/** 某日的假期信息（跨年假期：12 月底 / 1 月初会借用相邻年份的表） */
+export function holidayOf(y, m, d) {
+  const key = dstr(y, m, d);
+  let h = getHolidayMap(y)[key];
+  if (!h && m === 12 && d >= 24) h = getHolidayMap(y + 1)[key];
+  if (!h && m === 1 && d <= 6) h = getHolidayMap(y - 1)[key];
+  return h || null;
+}
+
 function nthWeekdayFestival(y, m, weekday, nth) {
   // 第 nth 个 weekday（0=周日）所在日
   const first = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
@@ -268,7 +353,7 @@ export function dayInfo(y, m, d) {
   const lunar = solar2lunar(y, m, d);
   const festivals = [];
   const term = getTermName(y, m, d);
-  const holiday = getHolidayMap(y)[dstr(y, m, d)] || null;
+  const holiday = holidayOf(y, m, d);
 
   if (lunar) {
     // 除夕
@@ -298,8 +383,8 @@ export function cellLabel(info) {
 }
 
 /** 是否为放假日 / 调休上班日 */
-export function isOffDay(y, m, d) { const h = getHolidayMap(y)[dstr(y, m, d)]; return !!h && h.type === 'off'; }
-export function isWorkDay(y, m, d) { const h = getHolidayMap(y)[dstr(y, m, d)]; return !!h && h.type === 'work'; }
+export function isOffDay(y, m, d) { const h = holidayOf(y, m, d); return !!h && h.type === 'off'; }
+export function isWorkDay(y, m, d) { const h = holidayOf(y, m, d); return !!h && h.type === 'work'; }
 
 /** 星期中文（0=周日） */
 export function weekCn(i) { return '星期' + WEEK_CN[i]; }
