@@ -94,16 +94,27 @@ App 内置的更新逻辑：
 4. 直连 GitHub 失败时自动改用 `ghfast.top` / `gh-proxy.com` 镜像重试；
 5. 也可以随时手动「设置 → 检查更新」，并支持「跳过此版本」。
 
-### 发一个新版本（三步）
+### 发一个新版本
+
+**方式一：一条命令搞定（推荐）**
+
+先在 <https://github.com/settings/tokens> 生成一个带 `repo` 权限的 Token，然后：
 
 ```bash
-# 1) 改版本号（同时更新网页常量、build.gradle、Service Worker 缓存名）
-node scripts/bump.mjs 1.0.1
+set GITHUB_TOKEN=ghp_xxxxxxxx          # PowerShell: $env:GITHUB_TOKEN="ghp_xxx"
+node scripts/release.mjs 1.0.1 "修复课表单双周识别"
+```
 
-# 2) 打包
-node scripts/build-apk.mjs        # 产物：dist/calendar-v1.0.1.apk
+脚本会自动：改版本号 → 打包签名 → 提交推送 → 建 Release 同名 Tag → 上传 APK。
+手机端下次打开 App 就能收到更新。
 
-# 3) 提交并推送源码
+> 也可以把 Token 写进项目根目录的 `.github-token` 文件（已加入 `.gitignore`，不会上传）。
+
+**方式二：手动三步**
+
+```bash
+node scripts/bump.mjs 1.0.1       # 改版本号（网页常量 + build.gradle + SW 缓存名）
+node scripts/build-apk.mjs        # 打包，产物 dist/calendar-v1.0.1.apk
 git add -A && git commit -m "v1.0.1" && git push
 ```
 

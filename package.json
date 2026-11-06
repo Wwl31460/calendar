@@ -13,7 +13,8 @@
     "test:import": "node scripts/test-import.mjs",
     "test:engine": "node scripts/test-engine.mjs",
     "test:ics": "node scripts/test-ics.mjs",
-    "test:update": "node scripts/test-update-ui.mjs && node scripts/test-native-bridge.mjs"
+    "test:update": "node scripts/test-update-ui.mjs && node scripts/test-native-bridge.mjs",
+    "release": "node scripts/release.mjs"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.2.3",

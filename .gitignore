@@ -43,3 +43,6 @@ android/keystore.properties
 # ---- 本地工作区数据 ----
 .workbuddy/
 repo.xml
+
+# ---- 发布用 Token ----
+.github-token
