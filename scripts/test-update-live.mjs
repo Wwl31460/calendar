@@ -14,9 +14,7 @@ const browser = await chromium.launch({
 
 const ctx = await browser.newContext({
   viewport: { width: 390, height: 844 },
-  deviceScaleFactor: 2,
-  isMobile: true,
-  hasTouch: true,
+  deviceScaleFactor: 1,
   locale: 'zh-CN',
   timezoneId: 'Asia/Shanghai'
 });
