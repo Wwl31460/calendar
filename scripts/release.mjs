@@ -1,18 +1,23 @@
 #!/usr/bin/env node
 /**
- * 一条命令发新版：改版本号 → 打包 → 提交推送 → 建 GitHub Release 并上传 APK
+ * 一条命令发新版：改版本号 → 打包 → 推送 → 建 GitHub Release 并上传 APK
  *
- *   GITHUB_TOKEN=xxx node scripts/release.mjs 1.0.1 "修复xx问题"
+ *   set GITHUB_TOKEN=xxx
+ *   node scripts/release.mjs 1.0.1 "修复xx问题"
  *
- * Token 获取：https://github.com/settings/tokens
- *   勾选 repo（或仅 Contents + Releases 的细粒度权限）即可。
+ * Token 获取：https://github.com/settings/tokens （勾 repo）
+ * Token 也可以写在项目根目录 .github-token 文件里（已在 .gitignore 中）。
  *
- * Token 也可以写在项目根目录的 .github-token 文件里（已在 .gitignore 中）。
+ * 推送会先试 git push；若网络阻断 github.com 的 git 协议（会报 443 超时），
+ * 自动改用 GitHub REST API 推送，只上传有变化的文件。
+ * 有代理时设置 HTTPS_PROXY，API 与上传都会走代理。
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gh, getToken } from './lib/github-api.mjs';
+import { pushViaApi } from './push-github.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OWNER = 'Wwl31460';
@@ -21,13 +26,6 @@ const isWin = process.platform === 'win32';
 
 const version = process.argv[2];
 const summary = process.argv[3] || '';
-
-function token() {
-  if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN.trim();
-  const f = path.join(ROOT, '.github-token');
-  if (fs.existsSync(f)) return fs.readFileSync(f, 'utf8').trim();
-  return '';
-}
 
 function fail(msg) {
   console.error(`\n✗ ${msg}`);
@@ -40,10 +38,28 @@ function run(cmd, args, opts = {}) {
   if (r.status !== 0) fail(`${cmd} ${args.join(' ')} 执行失败`);
 }
 
+/** 尝试 git push，返回是否成功（不抛错、不退出） */
+function tryGitPush(tk) {
+  const remote = `https://${tk}@github.com/${OWNER}/${REPO}.git`;
+  console.log('› 尝试 git push …');
+  const r = spawnSync(
+    'git',
+    ['-c', 'http.version=HTTP/1.1', 'push', remote, 'HEAD:refs/heads/main'],
+    { cwd: ROOT, encoding: 'utf8', shell: isWin, timeout: 180000 }
+  );
+  if (r.status === 0) {
+    console.log('  git push 成功');
+    return true;
+  }
+  const out = `${r.stderr || ''}${r.stdout || ''}`.trim();
+  console.log(`  git push 不可用：${out.split('\n').filter(Boolean).pop() || '未知错误'}`);
+  return false;
+}
+
 async function main() {
-  const tk = token();
+  const tk = getToken();
   if (!tk) {
-    fail('未找到 GITHUB_TOKEN。请先执行：\n  set GITHUB_TOKEN=你的token   （Windows）\n或把 token 写入项目根目录 .github-token 文件');
+    fail('未找到 GITHUB_TOKEN。请先执行：\n  set GITHUB_TOKEN=你的token\n或把 token 写入项目根目录 .github-token 文件');
   }
 
   // 1) 版本号
@@ -61,25 +77,28 @@ async function main() {
   const apkPath = path.join(ROOT, `dist/calendar-${tag}.apk`);
   if (!fs.existsSync(apkPath)) fail(`未找到安装包 ${apkPath}`);
 
-  // 3) 提交推送
+  // 3) 提交
   run('git', ['add', '-A']);
   const dirty = spawnSync('git', ['diff', '--cached', '--quiet'], { cwd: ROOT, shell: isWin }).status !== 0;
+  const commitMsg = `${tag}${summary ? '：' + summary : ''}`;
   if (dirty) {
-    run('git', ['-c', 'core.autocrlf=false', 'commit', '-m', `${tag}${summary ? '：' + summary : ''}`]);
+    run('git', ['-c', 'core.autocrlf=false', 'commit', '-m', commitMsg]);
   } else {
     console.log('› 没有需要提交的改动');
   }
 
-  const remote = `https://${tk}@github.com/${OWNER}/${REPO}.git`;
-  run('git', ['push', remote, `HEAD:refs/heads/main`, '--force-with-lease']);
+  // 4) 推送（git 优先，失败自动走 API）
+  if (!tryGitPush(tk)) {
+    console.log('› 切换到 GitHub API 通道推送 …');
+    const r = await pushViaApi({ message: commitMsg, token: tk });
+    console.log(`  已上传 ${r.uploaded} 个文件，删除 ${r.deleted} 个`);
+  }
 
-  // 4) 建 Release
+  // 5) 建 Release
   console.log(`\n› 创建 Release ${tag}`);
-  const exists = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${tag}`, {
-    headers: { Authorization: `Bearer ${tk}`, Accept: 'application/vnd.github+json' }
-  });
-  if (exists.status === 200) {
-    fail(`Release ${tag} 已存在，请换一个版本号或先到网页删除它`);
+  const exists = await gh('GET', `/repos/${OWNER}/${REPO}/releases/tags/${tag}`, undefined, { token: tk });
+  if (exists.ok) {
+    fail(`Release ${tag} 已存在，请换一个版本号，或先到网页删除它`);
   }
 
   const body = [
@@ -91,51 +110,32 @@ async function main() {
     '3. 已装旧版的用户，也可以直接在 App 内「设置 → 检查更新」升级'
   ].join('\n');
 
-  const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/releases`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${tk}`,
-      Accept: 'application/vnd.github+json',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      tag_name: tag,
-      name: `日历 ${ver}`,
-      body,
-      draft: false,
-      prerelease: false
-    })
-  });
+  const created = await gh('POST', `/repos/${OWNER}/${REPO}/releases`, {
+    tag_name: tag,
+    target_commitish: 'main',
+    name: `日历 ${ver}`,
+    body,
+    draft: false,
+    prerelease: false
+  }, { token: tk });
+  if (!created.ok) fail(`创建 Release 失败：${created.status} ${created.text || ''}`);
+  const release = created.data;
 
-  if (!res.ok) {
-    fail(`创建 Release 失败：${res.status} ${await res.text()}`);
-  }
-  const release = await res.json();
-
-  // 5) 上传 APK
+  // 6) 上传 APK
   const fileName = `calendar-${tag}.apk`;
-  console.log(`› 上传 ${fileName}（${(fs.statSync(apkPath).size / 1048576).toFixed(2)} MB）`);
-  const buf = fs.readFileSync(apkPath);
-  const up = await fetch(
+  const size = fs.statSync(apkPath).size;
+  console.log(`› 上传 ${fileName}（${(size / 1048576).toFixed(2)} MB）`);
+  const up = await gh(
+    'POST',
     `https://uploads.github.com/repos/${OWNER}/${REPO}/releases/${release.id}/assets?name=${encodeURIComponent(fileName)}`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${tk}`,
-        Accept: 'application/vnd.github+json',
-        'Content-Type': 'application/vnd.android.package-archive',
-        'Content-Length': String(buf.length)
-      },
-      body: buf
-    }
+    fs.readFileSync(apkPath),
+    { token: tk, raw: true }
   );
-
-  if (!up.ok) {
-    fail(`上传 APK 失败：${up.status} ${await up.text()}`);
-  }
+  if (!up.ok) fail(`上传 APK 失败：${up.status} ${up.text || ''}`);
 
   console.log(`\n✓ 发布完成：${tag}`);
   console.log(`  ${release.html_url}`);
+  console.log(`  下载：https://ghfast.top/https://github.com/${OWNER}/${REPO}/releases/download/${tag}/${fileName}`);
   console.log('  手机上打开 App → 设置 → 检查更新，即可看到新版本。');
 }
 

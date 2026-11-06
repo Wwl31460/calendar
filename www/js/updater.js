@@ -172,7 +172,7 @@ export function promptUpdate(result) {
           close();
           await downloadAndInstall(latest.apk.url);
         } else {
-          window.open(latest.apk.url, '_blank');
+          window.open(downloadCandidates(latest.apk.url)[0], '_blank');
           close();
         }
       }
@@ -197,8 +197,9 @@ export function promptUpdate(result) {
   });
 }
 
-/* 国内直连 GitHub 有时不通，按顺序回退到公共加速镜像 */
-export const MIRRORS = ['', 'https://ghfast.top/', 'https://gh-proxy.com/'];
+/* 国内直连 github.com 的 Release 下载常被阻断（实测 19s 超时），
+   因此镜像优先、官方兜底；海外网络下镜像同样可用，只是稍慢。 */
+export const MIRRORS = ['https://ghfast.top/', 'https://gh-proxy.com/', ''];
 
 export function downloadCandidates(url) {
   const list = [];
@@ -212,7 +213,7 @@ export function downloadCandidates(url) {
 /** 原生下载并调起安装器 */
 async function downloadAndInstall(url) {
   const P = nativeUpdater();
-  if (!P) { window.open(url, '_blank'); return; }
+  if (!P) { window.open(downloadCandidates(url)[0] || url, '_blank'); return; }
 
   const bar = h(`<div class="sheet" style="z-index:9999">
     <div class="sheet-mask"></div>

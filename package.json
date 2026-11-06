@@ -18,7 +18,8 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^6.2.3",
-    "playwright": "^1.49.1"
+    "playwright": "^1.49.1",
+    "undici": "^8.12.4"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.3",
