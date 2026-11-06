@@ -5,7 +5,7 @@
 
 - 代码仓库：<https://github.com/Wwl31460/calendar>
 - 最新安装包：<https://github.com/Wwl31460/calendar/releases/latest>
-- 国内加速下载（当前 v1.1.2）：<https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.1.2/calendar-v1.1.2.apk>
+- 国内加速下载（当前 v1.1.3）：<https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.1.3/calendar-v1.1.3.apk>
 
 ---
 
@@ -25,13 +25,13 @@
 
 ### 方式 A：直接装 APK（推荐）
 
-安装包：`dist/calendar-v1.1.2.apk`（3.41 MB，已签名），或直接从 Release 下载：
+安装包：`dist/calendar-v1.1.3.apk`（3.41 MB，已签名），或直接从 Release 下载：
 
 | 通道 | 链接 |
 | --- | --- |
-| 内网加速（推荐，国内直连可用） | <https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.1.2/calendar-v1.1.2.apk> |
-| 备用加速 | <https://gh-proxy.com/https://github.com/Wwl31460/calendar/releases/download/v1.1.2/calendar-v1.1.2.apk> |
-| GitHub 原始地址 | <https://github.com/Wwl31460/calendar/releases/download/v1.1.2/calendar-v1.1.2.apk> |
+| 内网加速（推荐，国内直连可用） | <https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.1.3/calendar-v1.1.3.apk> |
+| 备用加速 | <https://gh-proxy.com/https://github.com/Wwl31460/calendar/releases/download/v1.1.3/calendar-v1.1.3.apk> |
+| GitHub 原始地址 | <https://github.com/Wwl31460/calendar/releases/download/v1.1.3/calendar-v1.1.3.apk> |
 
 1. 手机上打开上面的链接下载 APK（微信里可能被拦，用浏览器打开）。
 2. 点击安装，系统提示「未知来源应用」时选择**允许**。
@@ -171,6 +171,12 @@ node scripts/push-github.mjs      # 推送（git 不通时用这个）
 > 只能卸载旧版重装（会丢数据，需先导出备份）。密钥位置见下方「签名」章节，请务必备份。
 
 ### 更新日志
+
+**v1.1.3（2026-11-06）**
+
+- 修复 MIUI / 鸿蒙上「解析软件包时出现问题（11）」：改用系统 PackageInstaller 安装会话，APK 字节由 App 写进系统暂存区，安装器不再需要读 `content://` 文件，`Permission Denial: opening provider ...FileProvider... not exported` 从根上消失
+- 新增 `InstallResultReceiver` 回传安装结果，安装失败会把系统给出的原因直接显示出来
+- 安装失败时提供「用浏览器下载」的备用安装路径
 
 **v1.1.2（2026-11-06）**
 

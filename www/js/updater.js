@@ -3,8 +3,8 @@ import { $, h, icon, openSheet, toast } from './ui.js';
 import { esc } from './utils.js';
 
 /* 版本号：由 scripts/bump.mjs 统一维护，同时写入 android/app/build.gradle */
-export const APP_VERSION = '1.1.2';
-export const VERSION_CODE = 4;
+export const APP_VERSION = '1.1.3';
+export const VERSION_CODE = 5;
 
 export const REPO = 'Wwl31460/calendar';
 export const RELEASES_API = `https://api.github.com/repos/${REPO}/releases/latest`;
@@ -211,15 +211,16 @@ export function downloadCandidates(url) {
   return list;
 }
 
-/** 下载失败时让用户自己用浏览器重来一遍，比反复重试更靠谱 */
-function offerManualDownload(apk, reason) {
+/** 下载或安装失败时让用户自己用浏览器重来一遍，比反复重试更靠谱 */
+function offerManualDownload(apk, reason, opts) {
+  const o = opts || {};
   openSheet({
-    title: '下载失败',
+    title: o.title || '下载失败',
     body: `<div class="upd">
       <div class="upd-badge warn">${icon('warn', 'ico')}</div>
-      <b style="font-size:14.5px">安装包没有下载完整</b>
+      <b style="font-size:14.5px">${esc(o.heading || '安装包没有下载完整')}</b>
       <p class="hint" style="margin-top:8px;line-height:1.7">${esc(reason || '网络中断，文件没下全')}<br>
-      已自动换过多个下载源仍未成功，建议改用浏览器下载同名安装包。</p>
+      ${esc(o.advice || '已自动换过多个下载源仍未成功，建议改用浏览器下载同名安装包。')}</p>
       <div class="upd-file">
         ${icon('file', 'ico')}
         <div class="grow">${esc(apk.name || 'calendar.apk')}</div>
@@ -284,6 +285,28 @@ async function downloadAndInstall(apk) {
     });
     await P.addListener('installStarted', () => {
       bar.remove();
+    });
+    // 系统安装会话的结果：确认 / 成功 / 失败
+    await P.addListener('installResult', d => {
+      const kind = (d && d.kind) || '';
+      const msg = (d && d.message) || '';
+      if (kind === 'success') {
+        bar.remove();
+        toast('安装完成', 2500);
+        return;
+      }
+      if (kind === 'confirm') {
+        bar.remove();
+        toast(msg || '请在系统窗口中确认安装', 3500);
+        return;
+      }
+      bar.remove();
+      if (sub) sub.remove && sub.remove();
+      offerManualDownload(apk, msg || '系统未能完成安装', {
+        title: '安装没有完成',
+        heading: '系统拦截了这次安装',
+        advice: '可以把安装包交给浏览器下载后手动安装，或关闭手机的「纯净模式 / 安全守护」再试一次。'
+      });
     });
     await P.addListener('downloadError', d => {
       bar.remove();

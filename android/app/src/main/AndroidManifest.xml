@@ -62,6 +62,11 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/updater_paths"></meta-data>
         </provider>
+
+        <!-- 系统安装会话的结果回调（显式 Intent，无需 intent-filter） -->
+        <receiver
+            android:name=".InstallResultReceiver"
+            android:exported="false" />
     </application>
 
     <!-- Permissions -->

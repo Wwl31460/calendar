@@ -54,8 +54,13 @@ if (!apk) {
 
 const dist = path.join(ROOT, 'dist');
 fs.mkdirSync(dist, { recursive: true });
+// 旧版本安装包挪到 dist/old，避免 safe-delete 批量删除守卫拦截
+const oldDir = path.join(dist, 'old');
 fs.readdirSync(dist).forEach(f => {
-  if (f.endsWith('.apk')) fs.unlinkSync(path.join(dist, f));
+  if (f.endsWith('.apk') && f !== `calendar-v${version}.apk`) {
+    fs.mkdirSync(oldDir, { recursive: true });
+    fs.renameSync(path.join(dist, f), path.join(oldDir, f));
+  }
 });
 
 const target = path.join(dist, `calendar-v${version}.apk`);

@@ -1,6 +1,10 @@
 package cn.rili.calendar;
 
+import android.app.PendingIntent;
+import android.content.ClipData;
+import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageInstaller;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
@@ -14,8 +18,11 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
@@ -27,6 +34,35 @@ import java.net.URL;
 public class AppUpdaterPlugin extends Plugin {
 
     private static final String AUTHORITY_SUFFIX = ".updater";
+
+    /** 会话安装的结果是异步回调的，留一个引用给 InstallResultReceiver */
+    private static WeakReference<AppUpdaterPlugin> liveInstance;
+
+    @Override
+    public void load() {
+        liveInstance = new WeakReference<>(this);
+    }
+
+    static void notifyInstall(String kind, String message) {
+        AppUpdaterPlugin p = (liveInstance == null) ? null : liveInstance.get();
+        if (p == null) return;
+        JSObject data = new JSObject();
+        data.put("kind", kind == null ? "" : kind);
+        data.put("message", message == null ? "" : message);
+        p.emitInstallResult(data);
+    }
+
+    private void emitInstallResult(final JSObject data) {
+        post(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    notifyListeners("installResult", data);
+                } catch (Exception ignored) {
+                }
+            }
+        });
+    }
 
     @PluginMethod
     public void getInfo(PluginCall call) {
@@ -372,20 +408,100 @@ public class AppUpdaterPlugin extends Plugin {
                 return;
             }
 
-            String authority = getContext().getPackageName() + AUTHORITY_SUFFIX;
-            Uri uri = FileProvider.getUriForFile(getContext(), authority, apk);
-
-            Intent intent = new Intent(Intent.ACTION_VIEW);
-            intent.setDataAndType(uri, "application/vnd.android.package-archive");
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                intent.setClipData(android.content.ClipData.newRawUri("", uri));
+            // 首选 PackageInstaller 会话安装：字节由本进程写进系统暂存区，
+            // 安装器不需要读我们的 content:// 文件，MIUI / 鸿蒙上不会再出现
+            // 「Permission Denial: opening provider ...FileProvider... not exported」。
+            if (Build.VERSION.SDK_INT >= 21) {
+                try {
+                    installBySession(apk);
+                    return;
+                } catch (Throwable t) {
+                    // 会话通道不可用时回退到 FileProvider
+                }
             }
-            getContext().startActivity(intent);
-            notifyListeners("installStarted", new JSObject());
+            installByIntent(apk);
         } catch (Exception e) {
             emitError("无法启动安装器：" + (e.getMessage() == null ? "未知原因" : e.getMessage()));
         }
+    }
+
+    /** 系统安装会话（推荐：无需跨应用共享文件，兼容各家定制系统） */
+    private void installBySession(File apk) throws Exception {
+        Context ctx = getContext();
+        android.content.pm.PackageManager pm = ctx.getPackageManager();
+        PackageInstaller installer = pm.getPackageInstaller();
+
+        PackageInstaller.SessionParams params =
+                new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+        params.setSize(apk.length());
+        if (Build.VERSION.SDK_INT >= 31) {
+            // 让系统按「用户主动安装」处理，避免部分定制系统把它当后台静默安装拦下
+            params.setInstallReason(android.content.pm.PackageManager.INSTALL_REASON_USER);
+        }
+
+        int sessionId = installer.createSession(params);
+        PackageInstaller.Session session = null;
+        try {
+            session = installer.openSession(sessionId);
+            long size = apk.length();
+
+            InputStream in = new FileInputStream(apk);
+            OutputStream out = session.openWrite("calendar.apk", 0, size);
+            try {
+                byte[] buf = new byte[65536];
+                long done = 0;
+                int n;
+                int lastPct = -1;
+                while ((n = in.read(buf)) > 0) {
+                    out.write(buf, 0, n);
+                    done += n;
+                    if (size > 0) {
+                        int pct = (int) (done * 100 / size);
+                        if (pct != lastPct) {
+                            lastPct = pct;
+                            emitProgress(pct / 100.0, done, size);
+                        }
+                    }
+                }
+                out.flush();
+                session.fsync(out);
+                if (size > 0 && done != size) throw new Exception("写入安装会话的字节数不正确");
+            } finally {
+                try { out.close(); } catch (Exception ignored) { }
+                try { in.close(); } catch (Exception ignored) { }
+            }
+
+            Intent result = new Intent(ctx, InstallResultReceiver.class);
+            result.setAction(InstallResultReceiver.ACTION);
+            result.setPackage(ctx.getPackageName());
+            int pflags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= 31) pflags |= PendingIntent.FLAG_MUTABLE;
+            PendingIntent pending = PendingIntent.getBroadcast(ctx, sessionId, result, pflags);
+
+            session.commit(pending.getIntentSender());
+            notifyListeners("installStarted", new JSObject());
+        } catch (Exception e) {
+            try { if (session != null) session.abandon(); } catch (Exception ignored) { }
+            try { installer.abandonSession(sessionId); } catch (Exception ignored) { }
+            throw e;
+        } finally {
+            try { if (session != null) session.close(); } catch (Exception ignored) { }
+        }
+    }
+
+    /** 兜底：用 FileProvider 把安装包交给系统安装器 */
+    private void installByIntent(File apk) {
+        String authority = getContext().getPackageName() + AUTHORITY_SUFFIX;
+        Uri uri = FileProvider.getUriForFile(getContext(), authority, apk);
+
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setDataAndType(uri, "application/vnd.android.package-archive");
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            intent.setClipData(ClipData.newRawUri("", uri));
+        }
+        getContext().startActivity(intent);
+        notifyListeners("installStarted", new JSObject());
     }
 
     private void post(Runnable r) {
