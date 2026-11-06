@@ -1,0 +1,28 @@
+{
+  "name": "calendar-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "中文日历 App：阳历农历对照、法定节假日、定时提醒（含农历）、日志、PDF 课表导入、应用内更新",
+  "scripts": {
+    "dev": "python -m http.server 5173 --directory www",
+    "apk": "node scripts/build-apk.mjs",
+    "bump": "node scripts/bump.mjs",
+    "sync": "cap sync android",
+    "icons": "python scripts/make_android_icons.py",
+    "shots": "node scripts/shoot.mjs",
+    "test:import": "node scripts/test-import.mjs",
+    "test:engine": "node scripts/test-engine.mjs",
+    "test:ics": "node scripts/test-ics.mjs",
+    "test:update": "node scripts/test-update-ui.mjs && node scripts/test-native-bridge.mjs"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.3",
+    "playwright": "^1.49.1"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.3",
+    "@capacitor/core": "^6.2.3",
+    "@capacitor/filesystem": "^6.0.4",
+    "@capacitor/local-notifications": "^6.1.3"
+  }
+}

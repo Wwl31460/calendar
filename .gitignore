@@ -1,0 +1,45 @@
+# ---- Node / 依赖 ----
+node_modules/
+npm-debug.log*
+package-lock.json.bak
+
+# ---- Android 构建产物 ----
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/build/
+android/local.properties
+android/.idea/
+android/app/release/
+*.iml
+.idea/
+.gradle/
+
+# ---- 打包输出（APK 只放 Release，不进版本库）----
+dist/
+*.apk
+*.aab
+*.apk.idsig
+
+# ---- 临时与调试 ----
+shots/
+preview/*.tmp
+.tmp/
+tmp/
+*.log
+.DS_Store
+Thumbs.db
+
+# ---- 系统 ----
+.venv/
+__pycache__/
+*.pyc
+
+# ---- 签名密钥（安全起见不入库，请单独备份）----
+android/keystore.properties
+*.jks
+*.keystore
+
+# ---- 本地工作区数据 ----
+.workbuddy/
+repo.xml

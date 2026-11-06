@@ -1,0 +1,20 @@
+{
+  "appId": "cn.rili.calendar",
+  "appName": "日历",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#f4f6fb",
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_icon",
+      "iconColor": "#3D5CF6",
+      "sound": "beep.wav"
+    }
+  }
+}
