@@ -32,7 +32,6 @@
 | 内网加速（推荐，国内直连可用） | <https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.1.1/calendar-v1.1.1.apk> |
 | 备用加速 | <https://gh-proxy.com/https://github.com/Wwl31460/calendar/releases/download/v1.1.1/calendar-v1.1.1.apk> |
 | GitHub 原始地址 | <https://github.com/Wwl31460/calendar/releases/download/v1.1.1/calendar-v1.1.1.apk> |
-| jsDelivr CDN（最稳，无跳转） | <https://cdn.jsdelivr.net/gh/Wwl31460/calendar@main/downloads/calendar-v1.1.1.apk> |
 
 1. 手机上打开上面的链接下载 APK（微信里可能被拦，用浏览器打开）。
 2. 点击安装，系统提示「未知来源应用」时选择**允许**。
@@ -176,7 +175,8 @@ node scripts/push-github.mjs      # 推送（git 不通时用这个）
 **v1.1.1（2026-11-06）**
 
 - 修复「下载完提示解码出错 / 装不上」：下载完成后会先校验文件大小、ZIP 结构、包名、签名与版本号，不合格自动换源重试，不再把半截文件或网页当安装包丢给系统
-- 新增 jsDelivr CDN 下载源（同时托管在仓库 `downloads/`），无 302 跳转、支持断点续传，作为镜像之外最稳的一条路
+- 下载改为**断点续传**：连接被掐断时保留已下部分，用 HTTP Range 接着下，不再从头重来
+- 实测某镜像会返回「200 + 半截文件」（3.4 MB 只给 726 KB），这正是此前「解码出错」的直接原因；现在遇到会立刻识别并换源
 - 下载失败时弹出「用浏览器下载」，并提示应下载到的准确字节数，方便自行核对
 - Release 页与 README 均标注安装包大小与 SHA-256
 

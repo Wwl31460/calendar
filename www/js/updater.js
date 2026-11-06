@@ -197,16 +197,13 @@ export function promptUpdate(result) {
   });
 }
 
-/* 国内直连 github.com 的 Release 下载常被阻断（实测 19s 超时），
-   因此 CDN 优先、镜像次之、官方兜底。
-   jsDelivr 直接托管仓库里的同一份 APK：没有 302 跳转、返回真实状态码，
-   下载中断也能被上层校验发现，比"加速镜像"稳。 */
+/* 国内直连 github.com 的 Release 下载常被阻断（实测 19s 超时），因此镜像优先、官方兜底。
+   实测这些镜像会返回「200 + 半截文件」，所以原生侧下载后必须校验大小与包结构，
+   不通过就换下一个源。 */
 export const MIRRORS = ['https://ghfast.top/', 'https://gh-proxy.com/', ''];
-export const CDN_BASE = `https://cdn.jsdelivr.net/gh/${REPO}@main/downloads/`;
 
-export function downloadCandidates(url, name) {
+export function downloadCandidates(url) {
   const list = [];
-  if (name) list.push(CDN_BASE + name);
   MIRRORS.forEach(prefix => {
     const u = prefix ? prefix + url : url;
     if (!list.includes(u)) list.push(u);

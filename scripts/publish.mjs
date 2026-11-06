@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
  * 上传「已经构建好」的 APK：提交 → 推送 → 建 Release → 上传资产。
- * 与 release.mjs 的区别：不再重新打包，保证 Release 资产与 downloads/ 里的 CDN 副本字节一致。
+ * 与 release.mjs 的区别：不再重新打包，直接上传 dist/ 里已构建好的那一份。
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { gh, getToken } from './lib/github-api.mjs';
 import { pushViaApi } from './push-github.mjs';
@@ -19,7 +20,7 @@ const isWin = process.platform === 'win32';
 const ver = fs.readFileSync(path.join(ROOT, 'www/js/updater.js'), 'utf8').match(/APP_VERSION\s*=\s*'([^']+)'/)[1];
 const tag = `v${ver}`;
 const fileName = `calendar-${tag}.apk`;
-const apkPath = path.join(ROOT, 'downloads', fileName);
+const apkPath = path.join(ROOT, 'dist', fileName);
 
 if (!fs.existsSync(apkPath)) {
   console.error(`✗ 缺少 ${apkPath}`);
@@ -38,11 +39,14 @@ if (!tk) {
 }
 
 const git = (args) => spawnSync('git', args, { cwd: ROOT, encoding: 'utf8', shell: isWin });
-const commitMsg = `${tag}：下载校验加固 + CDN 源`;
+const commitMsg = `${tag}：下载校验加固与断点续传`;
 
 git(['add', '-A']);
 if (git(['diff', '--cached', '--quiet']).status !== 0) {
-  const c = git(['-c', 'core.autocrlf=false', 'commit', '-m', commitMsg]);
+  // 说明里带空格时，shell:true 会被拆成多个 pathspec，改用 -F 传文件
+  const msgFile = path.join(os.tmpdir(), 'calendar-commit-msg.txt');
+  fs.writeFileSync(msgFile, commitMsg + '\n', 'utf8');
+  const c = git(['-c', 'core.autocrlf=false', 'commit', '-F', msgFile]);
   console.log((c.stdout || '').trim() || (c.stderr || '').trim());
 } else {
   console.log('› 无改动可提交');
@@ -77,7 +81,7 @@ const body = [
   '### 这次改了什么',
   '- 下载后先做 5 项校验：**字节数与服务端一致 → ZIP 结构完整（含清单与 dex）→ 系统能解析出包信息 → 包名与签名和当前版本一致 → 版本号更高**',
   '- 任一项不通过就删掉重下，并**自动换下一个下载源**，不再把坏文件丢给安装器',
-  '- 新增 **jsDelivr CDN** 下载源（同时托管在仓库 `downloads/`）：没有 302 跳转、返回真实状态码、支持断点续传',
+  '- 下载改为**断点续传**：连接被掐断时保留已下载部分，用 HTTP Range 接着下，不必从头重来',
   '- 全部源都失败时，弹出「用浏览器下载」并告知**应得到的准确字节数**，便于自行核对',
   '',
   '### 本次安装包校验值',
@@ -91,8 +95,6 @@ const body = [
   '1. 手机点击下方 APK 下载（或使用 jsDelivr 链接）',
   '2. 允许「安装未知来源应用」后完成安装',
   '3. 已装 v1.0.0 / v1.1.0 的用户可直接覆盖安装，数据保留',
-  '',
-  `CDN 直链：https://cdn.jsdelivr.net/gh/${OWNER}/${REPO}@main/downloads/${fileName}`
 ].join('\n');
 
 const created = await gh('POST', `/repos/${OWNER}/${REPO}/releases`, {
