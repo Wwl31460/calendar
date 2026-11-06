@@ -21,6 +21,9 @@ dist/
 *.aab
 *.apk.idsig
 
+# 例外：downloads/ 下保留当前版本安装包，供 jsDelivr CDN 做稳定下载源
+!downloads/*.apk
+
 # ---- 临时与调试 ----
 shots/
 preview/*.tmp

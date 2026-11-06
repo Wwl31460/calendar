@@ -1,0 +1,8 @@
+* text=auto eol=lf
+
+# 二进制资源，禁止任何换行转换
+*.apk binary
+*.aab binary
+*.png binary
+*.jpg binary
+*.jks binary

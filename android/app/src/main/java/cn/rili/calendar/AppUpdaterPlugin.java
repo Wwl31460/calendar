@@ -107,6 +107,8 @@ public class AppUpdaterPlugin extends Plugin {
             return;
         }
         final String fileName = call.getString("fileName", "calendar-update.apk");
+        // Release 上声明的文件大小，用来识破被截断的下载
+        final long expectSize = call.getLong("expectSize", 0L);
 
         new Thread(new Runnable() {
             @Override
@@ -120,7 +122,7 @@ public class AppUpdaterPlugin extends Plugin {
 
                 final String[] lastError = {"网络异常，请稍后重试"};
                 for (int i = 0; i < urls.size(); i++) {
-                    boolean ok = fetch(urls.get(i), apk, lastError);
+                    boolean ok = fetch(urls.get(i), apk, expectSize, lastError);
                     if (ok) {
                         final File target = apk;
                         post(new Runnable() {
@@ -138,7 +140,7 @@ public class AppUpdaterPlugin extends Plugin {
                 emitError(lastError[0]);
             }
 
-            private boolean fetch(String url, File apk, String[] lastError) {
+            private boolean fetch(String url, File apk, long expectSize, String[] lastError) {
                 HttpURLConnection conn = null;
                 InputStream in = null;
                 FileOutputStream out = null;
@@ -157,6 +159,16 @@ public class AppUpdaterPlugin extends Plugin {
                     if (code != HttpURLConnection.HTTP_OK) {
                         lastError[0] = "下载失败（HTTP " + code + "）";
                         return false;
+                    }
+
+                    // 镜像偶尔会返回错误网页而不是文件，直接把网页写进 .apk 会装不上
+                    String ctype = conn.getContentType();
+                    if (ctype != null) {
+                        String low = ctype.toLowerCase();
+                        if (low.contains("text/html") || low.contains("application/json")) {
+                            lastError[0] = "下载源返回的是网页，已自动换源";
+                            return false;
+                        }
                     }
 
                     long total = (Build.VERSION.SDK_INT >= 24)
@@ -186,13 +198,28 @@ public class AppUpdaterPlugin extends Plugin {
                     in.close();
                     in = null;
 
-                    // 简单校验，避免把错误页面当成安装包
-                    if (apk.length() < 4096) {
+                    // ---- 这里是关键：装之前必须确认下下来的真的是可安装的 APK ----
+                    // 1) 字节数与服务端声明一致（防止半截文件）
+                    if (expectSize > 0 && apk.length() != expectSize) {
                         apk.delete();
-                        lastError[0] = "安装包不完整";
+                        lastError[0] = "下载不完整（" + apk.length() + "/" + expectSize + " 字节）";
+                        return false;
+                    }
+                    // 2) 至少要有像样的体积
+                    if (apk.length() < 32768) {
+                        apk.delete();
+                        lastError[0] = "安装包体积异常，已自动换源";
+                        return false;
+                    }
+                    // 3) ZIP 结构与包信息（包名 / 签名 / 版本）
+                    String bad = validateApk(apk);
+                    if (bad != null) {
+                        apk.delete();
+                        lastError[0] = bad;
                         return false;
                     }
 
+                    apk.setReadable(true, false);
                     emitProgress(1.0, apk.length(), apk.length());
                     return true;
                 } catch (Exception e) {
@@ -214,6 +241,97 @@ public class AppUpdaterPlugin extends Plugin {
         }).start();
 
         call.resolve();
+    }
+
+    /**
+     * 校验下载到的文件是不是一个「能装上」的 APK。
+     * 返回 null 表示合格，否则返回给用户看的原因。
+     */
+    @SuppressWarnings("deprecation")
+    private String validateApk(File apk) {
+        // (1) ZIP 魔数 PK\x03\x04
+        java.io.RandomAccessFile raf = null;
+        try {
+            raf = new java.io.RandomAccessFile(apk, "r");
+            byte[] magic = new byte[4];
+            if (raf.read(magic) != 4
+                    || magic[0] != 0x50 || magic[1] != 0x4B || magic[2] != 0x03 || magic[3] != 0x04) {
+                return "下载内容不是安装包，已自动换源";
+            }
+        } catch (Exception e) {
+            return "无法读取下载内容";
+        } finally {
+            try {
+                if (raf != null) raf.close();
+            } catch (Exception ignored) {
+            }
+        }
+
+        // (2) 压缩包结构完整，且含有清单与代码
+        try {
+            java.util.zip.ZipFile zf = new java.util.zip.ZipFile(apk);
+            try {
+                if (zf.getEntry("AndroidManifest.xml") == null || zf.getEntry("classes.dex") == null) {
+                    return "安装包结构不完整";
+                }
+            } finally {
+                zf.close();
+            }
+        } catch (Exception e) {
+            return "安装包已损坏，请重新下载";
+        }
+
+        // (3) 系统能否解析出包信息
+        android.content.pm.PackageManager pm = getContext().getPackageManager();
+        android.content.pm.PackageInfo target;
+        try {
+            target = pm.getPackageArchiveInfo(apk.getAbsolutePath(),
+                    android.content.pm.PackageManager.GET_SIGNATURES);
+        } catch (Exception e) {
+            target = null;
+        }
+        if (target == null) return "系统无法识别该安装包，请重新下载";
+
+        String self = getContext().getPackageName();
+        if (!self.equals(target.packageName)) return "安装包不是「日历」应用";
+
+        // (4) 签名必须与当前已安装的一致，否则系统会拒绝覆盖安装
+        android.content.pm.PackageInfo cur;
+        try {
+            cur = pm.getPackageInfo(self, android.content.pm.PackageManager.GET_SIGNATURES);
+        } catch (Exception e) {
+            return "无法读取当前版本信息";
+        }
+        if (!sameSignature(cur, target)) {
+            return "新版本签名与当前版本不一致，无法覆盖安装";
+        }
+
+        // (5) 版本号要更高，否则是白装
+        long curCode = (Build.VERSION.SDK_INT >= 28) ? cur.getLongVersionCode() : cur.versionCode;
+        long newCode = (Build.VERSION.SDK_INT >= 28) ? target.getLongVersionCode() : target.versionCode;
+        if (newCode < curCode) return "下载到的版本比当前版本还旧";
+
+        return null;
+    }
+
+    private boolean sameSignature(android.content.pm.PackageInfo a, android.content.pm.PackageInfo b) {
+        if (a == null || b == null || a.signatures == null || b.signatures == null) return false;
+        if (a.signatures.length == 0 || b.signatures.length == 0) return false;
+        String sa = sha256(a.signatures[0]);
+        String sb = sha256(b.signatures[0]);
+        return sa != null && sa.equals(sb);
+    }
+
+    private String sha256(android.content.pm.Signature sig) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(sig.toByteArray());
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte x : digest) sb.append(String.format("%02x", x));
+            return sb.toString();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private void install(File apk) {

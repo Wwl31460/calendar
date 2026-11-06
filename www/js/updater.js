@@ -3,8 +3,8 @@ import { $, h, icon, openSheet, toast } from './ui.js';
 import { esc } from './utils.js';
 
 /* 版本号：由 scripts/bump.mjs 统一维护，同时写入 android/app/build.gradle */
-export const APP_VERSION = '1.1.0';
-export const VERSION_CODE = 2;
+export const APP_VERSION = '1.1.1';
+export const VERSION_CODE = 3;
 
 export const REPO = 'Wwl31460/calendar';
 export const RELEASES_API = `https://api.github.com/repos/${REPO}/releases/latest`;
@@ -170,9 +170,9 @@ export function promptUpdate(result) {
         }
         if (native) {
           close();
-          await downloadAndInstall(latest.apk.url);
+          await downloadAndInstall(latest.apk);
         } else {
-          window.open(downloadCandidates(latest.apk.url)[0], '_blank');
+          window.open(downloadCandidates(latest.apk.url, latest.apk.name)[0], '_blank');
           close();
         }
       }
@@ -198,11 +198,15 @@ export function promptUpdate(result) {
 }
 
 /* 国内直连 github.com 的 Release 下载常被阻断（实测 19s 超时），
-   因此镜像优先、官方兜底；海外网络下镜像同样可用，只是稍慢。 */
+   因此 CDN 优先、镜像次之、官方兜底。
+   jsDelivr 直接托管仓库里的同一份 APK：没有 302 跳转、返回真实状态码，
+   下载中断也能被上层校验发现，比"加速镜像"稳。 */
 export const MIRRORS = ['https://ghfast.top/', 'https://gh-proxy.com/', ''];
+export const CDN_BASE = `https://cdn.jsdelivr.net/gh/${REPO}@main/downloads/`;
 
-export function downloadCandidates(url) {
+export function downloadCandidates(url, name) {
   const list = [];
+  if (name) list.push(CDN_BASE + name);
   MIRRORS.forEach(prefix => {
     const u = prefix ? prefix + url : url;
     if (!list.includes(u)) list.push(u);
@@ -210,10 +214,40 @@ export function downloadCandidates(url) {
   return list;
 }
 
+/** 下载失败时让用户自己用浏览器重来一遍，比反复重试更靠谱 */
+function offerManualDownload(apk, reason) {
+  openSheet({
+    title: '下载失败',
+    body: `<div class="upd">
+      <div class="upd-badge warn">${icon('warn', 'ico')}</div>
+      <b style="font-size:14.5px">安装包没有下载完整</b>
+      <p class="hint" style="margin-top:8px;line-height:1.7">${esc(reason || '网络中断，文件没下全')}<br>
+      已自动换过多个下载源仍未成功，建议改用浏览器下载同名安装包。</p>
+      <div class="upd-file">
+        ${icon('file', 'ico')}
+        <div class="grow">${esc(apk.name || 'calendar.apk')}</div>
+        <span class="val">${fmtSize(apk.size)}</span>
+      </div>
+      <p class="hint" style="margin-top:10px">下载完成后请确认文件大小是 <b>${apk.size ? apk.size.toLocaleString('en-US') + ' 字节' : '与服务端一致'}</b>，再点击安装。</p>
+    </div>`,
+    actions: [
+      { text: '关闭', variant: 'secondary', onClick: c => c() },
+      {
+        text: '用浏览器下载',
+        onClick: c => {
+          c();
+          window.open(downloadCandidates(apk.url, apk.name)[0], '_blank');
+        }
+      }
+    ]
+  });
+}
+
 /** 原生下载并调起安装器 */
-async function downloadAndInstall(url) {
+async function downloadAndInstall(apk) {
+  const url = apk.url;
   const P = nativeUpdater();
-  if (!P) { window.open(downloadCandidates(url)[0] || url, '_blank'); return; }
+  if (!P) { window.open(downloadCandidates(url, apk.name)[0] || url, '_blank'); return; }
 
   const bar = h(`<div class="sheet" style="z-index:9999">
     <div class="sheet-mask"></div>
@@ -256,7 +290,8 @@ async function downloadAndInstall(url) {
     });
     await P.addListener('downloadError', d => {
       bar.remove();
-      toast(`下载失败：${(d && d.message) || '未知错误'}`, 3500);
+      if (sub) sub.remove && sub.remove();
+      offerManualDownload(apk, (d && d.message) || '');
     });
   } catch (e) { /* 忽略 */ }
 
@@ -281,7 +316,12 @@ async function downloadAndInstall(url) {
     }
 
     setPct(2);
-    await P.downloadAndInstall({ urls: downloadCandidates(url), url, fileName: `calendar-update.apk` });
+    await P.downloadAndInstall({
+      urls: downloadCandidates(url, apk.name),
+      url,
+      fileName: apk.name || 'calendar-update.apk',
+      expectSize: apk.size || 0
+    });
   } catch (e) {
     bar.remove();
     if (sub) sub.remove && sub.remove();
