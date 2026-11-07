@@ -35,6 +35,14 @@ function run(cmd, args, cwd = ROOT) {
 const match = fs.readFileSync(path.join(ROOT, 'www/js/updater.js'), 'utf8').match(/APP_VERSION\s*=\s*'([^']+)'/);
 const version = match ? match[1] : '0.0.0';
 
+// 0) 重新生成「每天换图标」的 217 张图 + 把**构建当天**那一个 alias 设为默认启用。
+//    这样即使装完不打开 App，桌面上一开始就是今天的日期（否则会是上次生成那天）。
+console.log('\n› python scripts/make_day_icons.py');
+const iconR = spawnSync('python', ['scripts/make_day_icons.py'], { cwd: ROOT, env, stdio: 'inherit', shell: isWin });
+if (iconR.status !== 0) {
+  console.warn('⚠ 每日图标生成失败，沿用上一次生成的结果（不影响打包）');
+}
+
 // 1) 同步 web 资源到原生工程
 //    默认只做 copy（网页资源 + 配置），插件有变化时加 --full 走完整 sync。
 //    完整 sync 会清空 capacitor-cordova-android-plugins/build，某些环境的安全策略会拦截批量删除。

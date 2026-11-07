@@ -137,4 +137,28 @@ public final class IconSwitcher {
                 ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
                 : PendingIntent.FLAG_UPDATE_CURRENT;
     }
+
+    /**
+     * 强制让桌面重新读一遍图标。
+     *
+     * 只在「刚升级完」时调用：此时 SharedPreferences 里记的 alias 已经是今天这个，
+     * {@link #sync} 会认为「无需改动」直接返回，而桌面仍可能显示升级前的旧图标缓存。
+     * 这里把今天这个 alias 先关再开（同一进程内连续两次调用，最终状态仍是启用），
+     * 桌面收到 PACKAGE_CHANGED 就会重新取图标。
+     */
+    public static void forceRefresh(Context context) {
+        if (context == null) return;
+        Context app = context.getApplicationContext();
+        String target = todayAlias();
+        PackageManager pm = app.getPackageManager();
+        String pkg = app.getPackageName();
+        try {
+            setState(pm, pkg, target, false);
+            setState(pm, pkg, target, true);
+        } catch (Exception ignored) {
+        }
+        app.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+                .edit().putString(KEY, target).apply();
+        scheduleNextDay(app);
+    }
 }

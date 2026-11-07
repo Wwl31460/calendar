@@ -5,7 +5,7 @@
 
 - 代码仓库：<https://github.com/Wwl31460/calendar>
 - 最新安装包：<https://github.com/Wwl31460/calendar/releases/latest>
-- 国内加速下载（当前 v1.3.0）：<https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.3.0/calendar-v1.3.0.apk>
+- 国内加速下载（当前 v1.3.1）：<https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.3.1/calendar-v1.3.1.apk>
 
 ---
 
@@ -25,14 +25,14 @@
 
 ### 方式 A：直接装 APK（推荐）
 
-安装包：`dist/calendar-v1.3.0.apk`（4.12 MB，已签名），或直接从 Release 下载：
+安装包：`dist/calendar-v1.3.1.apk`（4.12 MB，已签名），或直接从 Release 下载：
 
 | 通道 | 链接 |
 | --- | --- |
-| 内网加速（推荐，国内直连可用） | <https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.3.0/calendar-v1.3.0.apk> |
-| 备用加速 ① | <https://gh-proxy.com/https://github.com/Wwl31460/calendar/releases/download/v1.3.0/calendar-v1.3.0.apk> |
-| 备用加速 ② | <https://ghproxy.net/https://github.com/Wwl31460/calendar/releases/download/v1.3.0/calendar-v1.3.0.apk> |
-| GitHub 原始地址 | <https://github.com/Wwl31460/calendar/releases/download/v1.3.0/calendar-v1.3.0.apk> |
+| 内网加速（推荐，国内直连可用） | <https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.3.1/calendar-v1.3.1.apk> |
+| 备用加速 ① | <https://gh-proxy.com/https://github.com/Wwl31460/calendar/releases/download/v1.3.1/calendar-v1.3.1.apk> |
+| 备用加速 ② | <https://ghproxy.net/https://github.com/Wwl31460/calendar/releases/download/v1.3.1/calendar-v1.3.1.apk> |
+| GitHub 原始地址 | <https://github.com/Wwl31460/calendar/releases/download/v1.3.1/calendar-v1.3.1.apk> |
 
 1. 手机上打开上面的链接下载 APK（**别在微信里下**，用手机自带浏览器 / Chrome / 夸克）。
    一个通道卡住就换另一个：表格里 3 个加速通道任选，实在不行再用 GitHub 原始地址。
@@ -177,6 +177,12 @@ node scripts/push-github.mjs      # 推送（git 不通时用这个）
 > 只能卸载旧版重装（会丢数据，需先导出备份）。密钥位置见下方「签名」章节，请务必备份。
 
 ### 更新日志
+
+**v1.3.1（2026-11-07）**
+
+- 修一个升级后图标仍显示旧日期的场景：覆盖安装时桌面缓存了旧图标，而 App 内部记录「已经是今天这个图标」就不再动作。现在收到「应用已更新」广播时会**强制让桌面重新读取图标**（关掉再打开今天这个入口，最终状态不变）
+- 打包脚本现在每次构建都会**重新生成 217 张图标并把「构建当天」设为默认**，所以装完还没打开 App 时，桌面图标就已经是今天的日期
+- 其余与 v1.3.0 相同（日志图片放大、课表按行序解析、分隔带与今日列）
 
 **v1.3.0（2026-11-07）**
 
