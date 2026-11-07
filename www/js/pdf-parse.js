@@ -128,55 +128,100 @@ function isPersonName(t) {
   return COMPOUND.some(c => s.startsWith(c));
 }
 
-/** 班级：计算机2201 / 软件3班 / 会计2101-2 */
+/** 班级：计算机2201 / 软件3班 / 会计2101-2 / 2026级1班 / 计科2601 */
 function looksLikeClass(t) {
   const s = String(t).trim();
-  if (!s || s.length > 24) return false;
+  if (!s || s.length > 30) return false;
   if (/^(班级|班别|教学班|行政班|上课班级)/.test(s)) return true;
-  return /^[\u4e00-\u9fa5]{2,10}\d{2,4}(?:-\d{1,2})?(?:班)?$/.test(s) ||
-    /^[\u4e00-\u9fa5]{2,10}\d{1,2}班$/.test(s);
+  return /^[\u4e00-\u9fa5]{1,12}\d{2,4}(?:[-－]\d{1,2})?(?:班)?$/.test(s) ||
+    /^[\u4e00-\u9fa5]{0,12}\d{1,2}班$/.test(s) ||
+    /^\d{4}级\d{1,2}班$/.test(s) ||
+    /^[\u4e00-\u9fa5]{2,12}\d{4}级/.test(s);
 }
 
+/**
+ * 解析一个单元格。
+ *
+ * 学校教务系统导出的课表单元格排版是固定的：
+ *   第 1 行  课程名称（太长会折成 2 行）
+ *   第 2 行  上课周次（1-16周 / 1-8周单）
+ *   第 3 行  上课地点（教A305 / 计算机楼305）
+ *   之后     上课班级（计科2601）
+ *
+ * 所以按「内容特征优先，行序兜底」：能认出来的直接归位；
+ * 认不出来的行，课名还没结束时归课名，结束之后归班级。
+ * 教师姓名（如有）只用于识别，不再导入——用户不需要这个字段。
+ */
 function parseCell(lines, opts = {}) {
   const texts = lines.map(l => (l.text || '').trim()).filter(t => t && !/^[-—–_=·.]+$/.test(t));
   if (!texts.length) return null;
 
   let weeks = [];
   let periodText = '';
-  let teacher = '';
   let room = '';
-  let className = '';
+  let teacher = '';
   const nameParts = [];
-  let nameClosed = false;
+  const classParts = [];
+  let nameOpen = true;
 
   for (const raw of texts) {
     const t = raw.replace(/\s+/g, '');
     if (!t) continue;
 
+    // 周次（第 2 行）
     if (!weeks.length && /[周週]/.test(t) && /\d/.test(t)) {
       const w = extractWeeks(raw);
-      if (w.length) { weeks = w; nameClosed = true; continue; }
+      if (w.length) { weeks = w; nameOpen = false; continue; }
     }
+    // 节次范围
     if (!periodText && /^\d{1,2}[-~—–至]\d{1,2}节?$/.test(t)) {
-      periodText = t; nameClosed = true; continue;
+      periodText = t; nameOpen = false; continue;
     }
-    let m = t.match(/^(?:教师|老师|任课教师|授课教师)[:：]?(.+)$/);
-    if (m) { teacher = m[1].trim(); nameClosed = true; continue; }
-    m = t.match(/^(?:地点|教室|上课地点|上课教室)[:：]?(.+)$/);
-    if (m) { room = m[1].trim(); nameClosed = true; continue; }
+    // 带字段名的行
+    let m = t.match(/^(?:地点|教室|上课地点|上课教室)[:：]?(.+)$/);
+    if (m) { room = m[1].trim(); nameOpen = false; continue; }
     m = t.match(/^(?:班级|班别|教学班|行政班|上课班级)[:：]?(.+)$/);
-    if (m) { className = m[1].trim(); nameClosed = true; continue; }
-    if (/^(学分|人数|学时|考核|类型|性质)[:：]?/.test(t)) continue;
+    if (m) { classParts.push(m[1].trim()); nameOpen = false; continue; }
+    m = t.match(/^(?:教师|老师|任课教师|授课教师)[:：]?(.+)$/);
+    if (m) { teacher = m[1].trim(); nameOpen = false; continue; }
+    if (/^(学分|人数|学时|考核|类型|性质|备注)[:：]?/.test(t)) continue;
     if (NAME_NOISE.test(t) && t.length <= 4) continue;
 
-    if (/(楼|室|馆|场|机房|中心|校区)/.test(t) && t.length <= 18) { room = room || t; nameClosed = true; continue; }
-    // 教室：A305 / 教A305 / 教二108 / 综合楼B201
-    if (/^[\u4e00-\u9fa5]{0,3}[A-Za-z]{0,3}\d{2,4}([-－]\d{1,3})?$/.test(t) && t.length <= 12) { room = room || t; nameClosed = true; continue; }
-    if (/(教授|讲师|老师|助教|研究员)$/.test(t) && t.length <= 10) { teacher = teacher || t; nameClosed = true; continue; }
-    if (looksLikeClass(t) && !className) { className = t.replace(/^(班级|班别|教学班|行政班)[:：]?/, ''); nameClosed = true; continue; }
-    if (isPersonName(t)) { teacher = teacher || t; nameClosed = true; continue; }
+    // 地点（第 3 行）：带「楼/室/馆/场/机房」或 A305 / 教二108 这种房号
+    // 注意：纯数字（如 2602）不能当房号，它更可能是折行的班级号
+    if (/(楼|室|馆|场|机房|中心|校区)/.test(t) && t.length <= 18) {
+      if (!room) room = t;
+      nameOpen = false;
+      continue;
+    }
+    if (/^([\u4e00-\u9fa5]{1,3}[A-Za-z]{0,3}|[A-Za-z]{1,3})\d{2,4}([-－]\d{1,3})?$/.test(t) && t.length <= 12) {
+      if (!room) room = t;
+      nameOpen = false;
+      continue;
+    }
 
-    if (!nameClosed) nameParts.push(t);
+    // 班级（第 4 行起）：上一段班级被折行时（如「软工2601、软工」+「2602」）直接接上
+    if (looksLikeClass(t)) {
+      classParts.push(t.replace(/^(班级|班别|教学班|行政班)[:：]?/, ''));
+      nameOpen = false;
+      continue;
+    }
+    if (classParts.length && /^[\dA-Za-z\u4e00-\u9fa5]{1,10}$/.test(t)) {
+      classParts[classParts.length - 1] += t;
+      continue;
+    }
+
+    // 教师姓名：识别出来但丢弃
+    if (/(教授|讲师|老师|助教|研究员)$/.test(t) && t.length <= 10) {
+      teacher = teacher || t; nameOpen = false; continue;
+    }
+    if (isPersonName(t)) {
+      teacher = teacher || t; nameOpen = false; continue;
+    }
+
+    // 剩下的按位置归位
+    if (nameOpen) nameParts.push(t);
+    else classParts.push(t);
   }
 
   let name = nameParts.join('');
@@ -188,9 +233,9 @@ function parseCell(lines, opts = {}) {
   }
   return {
     name: name.replace(/^[*※◇◆\s]+|[*※◇◆\s]+$/g, ''),
-    teacher,
+    teacher: '',                  // 不再导入教师
     room,
-    className,
+    className: classParts.join('、'),
     weeks,
     periodText,
     raw: texts.join(' / ')

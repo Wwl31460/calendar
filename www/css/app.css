@@ -403,6 +403,20 @@ input, select, textarea { font-family: inherit; font-size: 15px; color: var(--te
   gap: 3px;
   min-width: 100%;
 }
+/* 今天整天那一列的底色（垫在课程格子下面） */
+.tt-today-col {
+  background: color-mix(in srgb, var(--primary) 9%, transparent);
+  border-radius: 10px;
+  pointer-events: none;
+}
+/* 第 4/5 节、第 8/9 节之间的分隔带 */
+.tt-sep {
+  background: color-mix(in srgb, var(--text-2) 32%, transparent);
+  border-radius: 3px;
+  pointer-events: none;
+}
+.tt-grid > * { position: relative; }
+.tt-head, .tt-time, .course { z-index: 1; }
 .tt-head {
   grid-row: 1;
   display: flex;
@@ -1366,6 +1380,7 @@ select.input {
   border-radius: 12px;
   overflow: hidden;
   background: var(--surface-2);
+  cursor: zoom-in;
 }
 .thumb-ph {
   width: 100%;
@@ -1395,5 +1410,79 @@ select.input {
 }
 .nf-img { display: inline-flex; align-items: center; gap: 3px; }
 .nf-img .ico { width: 12px; height: 12px; }
+
+/* ---------- 图片全屏查看 ---------- */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 340;
+  background: #0f1116;
+  display: flex;
+  flex-direction: column;
+  touch-action: none;
+  animation: lbIn .16s ease both;
+}
+@keyframes lbIn { from { opacity: 0; } to { opacity: 1; } }
+.lb-head {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 20px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, .62), rgba(0, 0, 0, 0));
+  pointer-events: none;
+}
+.lb-head .pdfv-btn {
+  pointer-events: auto;
+  background: rgba(255, 255, 255, .16);
+}
+.lb-count {
+  color: rgba(255, 255, 255, .82);
+  font-size: 12.5px;
+  letter-spacing: .4px;
+  font-variant-numeric: tabular-nums;
+}
+.lb-stage {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  touch-action: none;
+  padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+}
+.lb-img {
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+  will-change: transform;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.lightbox.zoomed .lb-img { cursor: grab; }
+.lb-nav {
+  position: absolute;
+  top: 50%;
+  margin-top: -27px;
+  width: 36px;
+  height: 56px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, .38);
+  color: #fff;
+  font-size: 26px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  padding: 0 0 3px;
+  z-index: 2;
+}
+.lb-nav.prev { left: 8px; }
+.lb-nav.next { right: 8px; }
+.lb-nav:active { background: rgba(255, 255, 255, .22); }
 
 .tt-pdf-card .pd-ico.img { background: rgba(61,92,246,.12); color: var(--primary); }

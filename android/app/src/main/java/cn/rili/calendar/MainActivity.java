@@ -25,6 +25,11 @@ public class MainActivity extends BridgeActivity {
             getBridge().getWebView().addJavascriptInterface(new BackBridge(), "AppBack");
         } catch (Exception ignored) {
         }
+        // 桌面图标跟着日期走（预置 217 个 alias，这里只切换当天那一个）
+        try {
+            IconSwitcher.sync(this);
+        } catch (Exception ignored) {
+        }
     }
 
     @Override
@@ -33,6 +38,10 @@ public class MainActivity extends BridgeActivity {
         // 回到前台时刷新桌面小组件，避免系统漏发跨天闹钟导致显示旧日期
         try {
             CalendarWidgetProvider.updateAll(this);
+        } catch (Exception ignored) {
+        }
+        try {
+            IconSwitcher.sync(this);
         } catch (Exception ignored) {
         }
     }

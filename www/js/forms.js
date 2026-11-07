@@ -5,6 +5,7 @@ import {
 } from './store.js';
 import { confirmSheet, h, hideToast, icon, openSheet, segmented, toast } from './ui.js';
 import { deleteImage, deleteImages, loadImage, saveImages } from './media.js';
+import { openImageLightbox } from './lightbox.js';
 import { solar2lunar, lunar2solar } from './lunar.js';
 import { lunarDayCn, lunarMonthCn } from './reminder.js';
 import { COURSE_COLORS, parseWeeks, weeksLabel } from './schedule.js';
@@ -162,6 +163,20 @@ export function openNoteEditor({ note = null, date = todayStr() } = {}) {
         else if (el.isConnected) el.textContent = '已丢失';
       } catch (e) { /* ignore */ }
     });
+    thumbs.querySelectorAll('.thumb').forEach(el => {
+      el.addEventListener('click', async e => {
+        if (e.target.closest('.thumb-x')) return;
+        const i = Number(el.dataset.i);
+        // 先把所有图片读出来，才能在查看器里左右滑动
+        const urls = await Promise.all(images.map(async im => {
+          try { return await loadImage(im.id); } catch (err) { return null; }
+        }));
+        const ok = urls.map((u, k) => (u ? k : -1)).filter(k => k >= 0);
+        const at = ok.indexOf(i);
+        if (at < 0) { toast('这张图片已经丢失'); return; }
+        openImageLightbox(ok.map(k => urls[k]), at);
+      });
+    });
     thumbs.querySelectorAll('.thumb-x').forEach(b => {
       b.addEventListener('click', async e => {
         e.stopPropagation();
@@ -254,12 +269,8 @@ export function openCourseForm({ course = null, weekday = 1 } = {}) {
         <input class="input" id="c-name" maxlength="30" placeholder="例如：高等数学" value="${esc(c.name)}" />
       </div>
       <div class="row2">
-        <div class="field"><label>任课教师</label><input class="input" id="c-teacher" maxlength="20" placeholder="选填" value="${esc(c.teacher || '')}" /></div>
-        <div class="field"><label>上课地点</label><input class="input" id="c-room" maxlength="24" placeholder="选填" value="${esc(c.room || '')}" /></div>
-      </div>
-      <div class="field">
-        <label>班级</label>
-        <input class="input" id="c-class" maxlength="30" placeholder="例如：计算机2201、软件3班" value="${esc(c.className || '')}" />
+        <div class="field"><label>上课地点</label><input class="input" id="c-room" maxlength="24" placeholder="例如：教A305" value="${esc(c.room || '')}" /></div>
+        <div class="field"><label>班级</label><input class="input" id="c-class" maxlength="30" placeholder="例如：计算机2201" value="${esc(c.className || '')}" /></div>
       </div>
       <div class="field"><label>星期</label><div id="c-weekday"></div></div>
       <div class="row2">
@@ -320,7 +331,7 @@ export function openCourseForm({ course = null, weekday = 1 } = {}) {
           wd = Number(wdBtn ? wdBtn.dataset.v : wd);
           const data = {
             name,
-            teacher: body.querySelector('#c-teacher').value.trim(),
+            teacher: c.teacher || '',   // 界面不再编辑，保留旧数据
             room: body.querySelector('#c-room').value.trim(),
             className: body.querySelector('#c-class').value.trim(),
             weekday: wd, start, end,

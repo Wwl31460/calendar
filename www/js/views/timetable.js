@@ -57,7 +57,24 @@ export function render() {
   const rowsToShow = Math.min(totalPeriods, Math.max(9, maxUsed));
   const today = todayStr();
   const active = db.courses.filter(c => !c.weeks || !c.weeks.length || c.weeks.includes(week));
-  const occupied = new Set(active.map(c => `${c.weekday}|${c.start}|${c.end}`));
+
+  /* 上午/下午、下午/晚上之间留出更宽的分隔带，并把今天那一列整列加深 */
+  const BREAKS = [4, 8];
+  const rowSizes = ['32px'];
+  const rowOf = {};
+  const seps = [];
+  let ri = 2;
+  for (let p = 1; p <= rowsToShow; p++) {
+    rowOf[p] = ri++;
+    rowSizes.push('46px');
+    if (BREAKS.includes(p) && p < rowsToShow) {
+      seps.push({ after: p, row: ri });
+      rowSizes.push('9px');
+      ri++;
+    }
+  }
+  g.style.gridTemplateRows = rowSizes.join(' ');
+  const span = (a, b) => `${rowOf[a]} / ${rowOf[b] + 1}`;
 
   let html = '<div class="tt-head" style="grid-column:1;grid-row:1"></div>';
   dates.forEach((d, i) => {
@@ -66,9 +83,20 @@ export function render() {
       <b>${WD[i]}</b><span>${d.getMonth() + 1}/${d.getDate()}</span></div>`;
   });
 
+  // 今天列的整列底色（垫在格子下面）
+  const todayCol = dates.findIndex(d => ymd(d) === today);
+  if (todayCol >= 0) {
+    html += `<div class="tt-today-col" style="grid-column:${todayCol + 2};grid-row:2 / -1"></div>`;
+  }
+
+  // 4/5 节、8/9 节之间的加深分隔带
+  seps.forEach(s => {
+    html += `<div class="tt-sep" style="grid-column:1 / -1;grid-row:${s.row}"></div>`;
+  });
+
   for (let p = 1; p <= rowsToShow; p++) {
     const t = periodTime(p - 1);
-    html += `<div class="tt-time" style="grid-column:1;grid-row:${p + 1}"><b>${p}</b><span>${esc(t.start)}</span></div>`;
+    html += `<div class="tt-time" style="grid-column:1;grid-row:${rowOf[p]}"><b>${p}</b><span>${esc(t.start)}</span></div>`;
   }
 
   // 空档（可点击添加）
@@ -76,15 +104,17 @@ export function render() {
     for (let p = 1; p <= rowsToShow; p++) {
       const covered = active.some(c => c.weekday === wd && p >= c.start && p <= c.end);
       if (covered) continue;
-      html += `<div class="course empty-slot" data-wd="${wd}" data-p="${p}" style="grid-column:${wd + 1};grid-row:${p + 1}"></div>`;
+      html += `<div class="course empty-slot" data-wd="${wd}" data-p="${p}" style="grid-column:${wd + 1};grid-row:${rowOf[p]}"></div>`;
     }
   }
 
   active.forEach(c => {
-    const span = Math.max(1, c.end - c.start + 1);
-    html += `<div class="course" data-id="${c.id}" style="--c:${COURSE_COLORS[c.color || 0]};grid-column:${c.weekday + 1};grid-row:${c.start + 1} / span ${span}">
+    const st = Math.max(1, Math.min(rowsToShow, c.start));
+    const en = Math.max(st, Math.min(rowsToShow, c.end));
+    const meta = [c.room, c.className].filter(Boolean).join(' · ');
+    html += `<div class="course" data-id="${c.id}" style="--c:${COURSE_COLORS[c.color || 0]};grid-column:${c.weekday + 1};grid-row:${span(st, en)}">
       <b>${esc(c.name)}</b>
-      ${(c.room || c.className) ? `<span>${esc([c.room, c.className].filter(Boolean).join(' · '))}</span>` : ''}
+      ${meta ? `<span>${esc(meta)}</span>` : ''}
     </div>`;
   });
 
@@ -199,7 +229,7 @@ export function openSemesterSheet() {
 /* ---------------- 导入 ---------------- */
 export function openImportSheet() {
   const body = h(`<div>
-    <p class="hint" style="margin-top:0">支持教务系统导出的 PDF（文字版）和课表截图。PDF 会自动识别星期、节次、周次、教师、地点、班级；图片会原样存进 App，随时放大查看。</p>
+    <p class="hint" style="margin-top:0">支持教务系统导出的 PDF（文字版）和课表截图。PDF 会自动识别星期、节次、课程名、周次、地点、班级；图片会原样存进 App，随时放大查看。</p>
     <button class="btn" id="pick-auto" style="width:100%;margin-top:14px">${icon('upload')}&nbsp;选择 PDF / 图片并导入</button>
     <button class="btn secondary" id="pick-view" style="width:100%;margin-top:10px">${icon('book2')}&nbsp;只保存原文件（不识别文字）</button>
     <button class="btn secondary" id="paste-text" style="width:100%;margin-top:10px">${icon('pen')}&nbsp;粘贴文字课表</button>
@@ -353,7 +383,7 @@ function openPreview(courses, mode, extra = {}) {
         <label class="switch"><input type="checkbox" data-i="${i}" ${c.on ? 'checked' : ''}/><i></i></label>
         <div class="pi-main">
           <div class="pi-name">${esc(c.name)}</div>
-          <div class="pi-meta">${esc('周' + WD[c.weekday - 1])} 第 ${c.start}-${c.end} 节 · ${esc(weeksLabel(c.weeks))}${c.room ? ' · ' + esc(c.room) : ''}${c.teacher ? ' · ' + esc(c.teacher) : ''}${c.className ? ' · ' + esc(c.className) : ''}</div>
+          <div class="pi-meta">${esc('周' + WD[c.weekday - 1])} 第 ${c.start}-${c.end} 节 · ${esc(weeksLabel(c.weeks))}${c.room ? ' · ' + esc(c.room) : ''}${c.className ? ' · ' + esc(c.className) : ''}</div>
         </div>
       </div>`).join('');
     listEl.querySelectorAll('input[type=checkbox]').forEach(cb => {
@@ -391,7 +421,6 @@ function openPreview(courses, mode, extra = {}) {
           chosen.forEach((c, i) => {
             addCourse({
               name: c.name,
-              teacher: c.teacher || '',
               room: c.room || '',
               className: c.className || '',
               weekday: c.weekday,

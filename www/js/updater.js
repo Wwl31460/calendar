@@ -3,8 +3,8 @@ import { $, h, icon, openSheet, toast } from './ui.js';
 import { esc } from './utils.js';
 
 /* 版本号：由 scripts/bump.mjs 统一维护，同时写入 android/app/build.gradle */
-export const APP_VERSION = '1.2.1';
-export const VERSION_CODE = 7;
+export const APP_VERSION = '1.3.0';
+export const VERSION_CODE = 8;
 
 export const REPO = 'Wwl31460/calendar';
 export const RELEASES_API = `https://api.github.com/repos/${REPO}/releases/latest`;
