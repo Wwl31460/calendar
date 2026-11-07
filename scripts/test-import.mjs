@@ -21,7 +21,8 @@ await page.screenshot({ path: 'shots/20-timetable-empty.png' });
 
 await page.click('#tt-empty-import').catch(async () => { await page.click('#tt-import'); });
 await page.waitForTimeout(500);
-await page.setInputFiles('#pdf-input', 'samples/课表样例.pdf');
+const SAMPLE = process.argv[2] || 'samples/课表样例.pdf';
+await page.setInputFiles('#pdf-input', SAMPLE);
 await page.waitForTimeout(2500);
 
 await page.screenshot({ path: 'shots/21-import-preview.png' });

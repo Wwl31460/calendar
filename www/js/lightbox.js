@@ -171,8 +171,7 @@ export function openImageLightbox(urls, start = 0) {
       if (Math.abs(dx) < 12) {
         if (dt < 300) {
           lastTap = 0;
-          if (scale > 1.02) { scale = 1; tx = 0; ty = 0; apply(true); }
-          else { scale = 2.5; apply(true); }
+          toggleZoom(e.changedTouches[0]?.clientX, e.changedTouches[0]?.clientY);
         } else {
           lastTap = Date.now();
         }
@@ -180,6 +179,43 @@ export function openImageLightbox(urls, start = 0) {
       mode = null;
     }
   });
+
+  /**
+   * 放大 / 还原。放大时以点击位置为中心，这样双击哪里就看哪里，
+   * 而不是永远放大正中间。
+   */
+  function toggleZoom(cx, cy) {
+    if (scale > 1.02) {
+      scale = 1; tx = 0; ty = 0;
+      apply(true);
+      return;
+    }
+    scale = 2.5;
+    const r = stage.getBoundingClientRect();
+    const px = (cx == null ? r.left + r.width / 2 : cx) - (r.left + r.width / 2);
+    const py = (cy == null ? r.top + r.height / 2 : cy) - (r.top + r.height / 2);
+    // 让点击处向屏幕中心靠拢：(1 - 1/scale) 是把内容坐标换算到位移
+    tx = -px * (scale - 1);
+    ty = -py * (scale - 1);
+    clampPan();
+    apply(true);
+  }
+
+  // 桌面 / 鼠标环境：双击同样能放大（手机上是双击，两条路径都留着）
+  stage.addEventListener('dblclick', e => {
+    e.preventDefault();
+    toggleZoom(e.clientX, e.clientY);
+  });
+  // 鼠标滚轮缩放，方便在电脑上预览
+  stage.addEventListener('wheel', e => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    const next = Math.min(5, Math.max(1, scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+    scale = next;
+    if (scale <= 1.02) { tx = 0; ty = 0; }
+    clampPan();
+    apply(false);
+  }, { passive: false });
 
   el.querySelector('[data-act="close"]').addEventListener('click', close);
   const prevBtn = el.querySelector('[data-act="prev"]');

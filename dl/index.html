@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>日历 v1.3.2 下载</title>
+<style>
+  :root { --blue:#3D5CF6; --ink:#111827; --ink2:#4b5563; --ink3:#9ca3af; --line:#e5e7eb; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; padding: 28px 20px 48px; background: #f4f6fb; color: var(--ink);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    max-width: 560px; margin-inline: auto;
+  }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  .sub { color: var(--ink2); font-size: 13.5px; line-height: 1.7; margin: 0 0 22px; }
+  .card { background: #fff; border-radius: 16px; padding: 18px; box-shadow: 0 6px 24px rgba(17,24,39,.06); margin-bottom: 16px; }
+  .btn {
+    display: block; text-align: center; text-decoration: none;
+    background: var(--blue); color: #fff; font-weight: 600; font-size: 16px;
+    padding: 15px 18px; border-radius: 999px; box-shadow: 0 8px 20px rgba(61,92,246,.28);
+  }
+  .btn:active { transform: translateY(1px); }
+  .meta { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--ink3); margin-top: 12px; }
+  .kv { display: flex; gap: 8px; font-size: 12.5px; color: var(--ink2); margin-top: 10px; line-height: 1.6; }
+  .kv b { color: var(--ink); font-weight: 600; }
+  code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; word-break: break-all; color: var(--ink2); }
+  h2 { font-size: 14px; margin: 0 0 10px; }
+  ol { margin: 0; padding-left: 20px; font-size: 13.5px; line-height: 1.95; color: var(--ink2); }
+  ol b { color: var(--ink); }
+  .tip { font-size: 12.5px; color: var(--ink3); line-height: 1.75; margin-top: 14px; }
+  .warn { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; border-radius: 12px; padding: 12px 14px; font-size: 13px; line-height: 1.7; }
+</style>
+</head>
+<body>
+  <h1>日历 v1.3.2</h1>
+  <p class="sub">图标随日期自动切换 · 日志图片可放大 · 课表按行序解析 · 今天列高亮</p>
+
+  <div class="card">
+    <a class="btn" href="calendar-v1.3.2.apk" download>下载安装包（4.12 MB）</a>
+    <div class="meta"><span>Android 7.0 及以上</span><span>已签名 · 覆盖安装不丢数据</span></div>
+    <div class="kv"><span>SHA-256</span><code>a4ed1cf4be7b69149b1a8dafc20e7b5a301cc0d56c382ee90e4ffb2f209fad23</code></div>
+    <div class="kv"><span>大小</span><b>4,318,394 字节</b></div>
+  </div>
+
+  <div class="card">
+    <h2>安装步骤</h2>
+    <ol>
+      <li>点上面的按钮下载（<b>别在微信里下</b>，用手机自带浏览器 / Chrome / 夸克）</li>
+      <li>下载完成后点通知里的文件，或在「文件管理 → 下载」里点开</li>
+      <li>提示「安装未知应用」时，允许浏览器安装应用</li>
+      <li>覆盖安装即可，<b>原来的日程 / 日志 / 课表都还在</b></li>
+    </ol>
+    <p class="tip">装好后打开 App →「设置 → 检查更新」应显示 v1.3.2。</p>
+  </div>
+
+  <div class="card">
+    <h2>图标还是旧日期？</h2>
+    <div class="warn">打开 App 后如果桌面图标仍是升级前那张，按顺序做一次：<br>
+      ① 进「设置」→ 点「桌面图标」那一行（会显示今天应是几月几日星期几）<br>
+      ② 长按桌面图标 → 移除 → 从应用列表拖回桌面<br>
+      ③ 还不变就重启一次手机，桌面会重新读取图标。</div>
+  </div>
+</body>
+</html>

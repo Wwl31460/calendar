@@ -128,11 +128,30 @@ function isPersonName(t) {
   return COMPOUND.some(c => s.startsWith(c));
 }
 
-/** 班级：计算机2201 / 软件3班 / 会计2101-2 / 2026级1班 / 计科2601 */
+/** 上课地点：教学楼里的房间（文A305 / 计算机楼305 / 教二108 / B201 / 机房A） */
+function looksLikeRoom(t) {
+  const s = String(t).trim();
+  if (!s || s.length > 18) return false;
+  if (/(楼|室|馆|场|机房|中心|校区|实验室|实训)/.test(s)) return true;
+  // 教二108、文科501：汉字前缀 + 3 位数（4 位数更可能是「软工2601」这种班级）
+  if (/^[\u4e00-\u9fa5]{1,4}\d{3}$/.test(s)) return true;
+  // 教A305、综合楼B201
+  if (/^[\u4e00-\u9fa5]{0,4}[A-Za-z]{1,2}\d{3,4}$/.test(s)) return true;
+  // A305、B-201
+  if (/^[A-Za-z]{1,3}[-－]?\d{2,4}$/.test(s)) return true;
+  // 3-204（楼号-房号）
+  if (/^\d{1,2}[-－]\d{3}$/.test(s)) return true;
+  return false;
+}
+
+/** 班级：计算机2201 / 软件3班 / 会计2101-2 / 2022级3班 / 软工2601、软工2602 */
 function looksLikeClass(t) {
   const s = String(t).trim();
-  if (!s || s.length > 30) return false;
+  if (!s || s.length > 40) return false;
   if (/^(班级|班别|教学班|行政班|上课班级)/.test(s)) return true;
+  // 多个班级用顿号/逗号/斜杠连写时，逐段判断
+  const segs = s.split(/[、，,／/；;]/).filter(Boolean);
+  if (segs.length > 1) return segs.every(x => looksLikeClass(x));
   return /^[\u4e00-\u9fa5]{1,12}\d{2,4}(?:[-－]\d{1,2})?(?:班)?$/.test(s) ||
     /^[\u4e00-\u9fa5]{0,12}\d{1,2}班$/.test(s) ||
     /^\d{4}级\d{1,2}班$/.test(s) ||
@@ -187,14 +206,8 @@ function parseCell(lines, opts = {}) {
     if (/^(学分|人数|学时|考核|类型|性质|备注)[:：]?/.test(t)) continue;
     if (NAME_NOISE.test(t) && t.length <= 4) continue;
 
-    // 地点（第 3 行）：带「楼/室/馆/场/机房」或 A305 / 教二108 这种房号
-    // 注意：纯数字（如 2602）不能当房号，它更可能是折行的班级号
-    if (/(楼|室|馆|场|机房|中心|校区)/.test(t) && t.length <= 18) {
-      if (!room) room = t;
-      nameOpen = false;
-      continue;
-    }
-    if (/^([\u4e00-\u9fa5]{1,3}[A-Za-z]{0,3}|[A-Za-z]{1,3})\d{2,4}([-－]\d{1,3})?$/.test(t) && t.length <= 12) {
+    // 地点（第 3 行）：「楼/室/馆/机房」关键词，或 教A305 / 教二108 / B201 这类房号
+    if (looksLikeRoom(t)) {
       if (!room) room = t;
       nameOpen = false;
       continue;

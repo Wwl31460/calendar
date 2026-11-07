@@ -43,6 +43,15 @@ public final class IconSwitcher {
         return aliasFor(iso, c.get(Calendar.DAY_OF_MONTH));
     }
 
+    /** 今日图标上写的内容，例如「11月7日 星期六」，用于设置页展示与自检 */
+    public static String todayLabel() {
+        Calendar c = Calendar.getInstance();
+        int dow = c.get(Calendar.DAY_OF_WEEK);
+        String[] cn = {"星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"};
+        return (c.get(Calendar.MONTH) + 1) + "月" + c.get(Calendar.DAY_OF_MONTH) + "日 "
+                + cn[dow - Calendar.SUNDAY];
+    }
+
     /** 同步今天的图标；无变化时几乎零开销 */
     public static void sync(Context context) {
         if (context == null) return;

@@ -1,7 +1,11 @@
 package cn.rili.calendar;
 
+import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
+import android.os.Build;
 import android.os.Bundle;
 import android.webkit.JavascriptInterface;
+import android.webkit.WebSettings;
 
 import com.getcapacitor.BridgeActivity;
 
@@ -25,9 +29,34 @@ public class MainActivity extends BridgeActivity {
             getBridge().getWebView().addJavascriptInterface(new BackBridge(), "AppBack");
         } catch (Exception ignored) {
         }
+        // 版本变了就清一次 WebView 缓存。
+        // 覆盖安装后 WebView 仍可能拿缓存的 index.html / js，导致「界面还是老样子」——
+        // 这一步就是把这个坑堵掉。
+        clearWebCacheOnUpgrade();
         // 桌面图标跟着日期走（预置 217 个 alias，这里只切换当天那一个）
         try {
             IconSwitcher.sync(this);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void clearWebCacheOnUpgrade() {
+        try {
+            int code;
+            if (Build.VERSION.SDK_INT >= 33) {
+                PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+                code = (int) pi.getLongVersionCode();
+            } else {
+                code = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
+            }
+            SharedPreferences sp = getSharedPreferences("app_build", MODE_PRIVATE);
+            int last = sp.getInt("code", -1);
+            if (last != code) {
+                // 不让 WebView 用旧缓存
+                getBridge().getWebView().getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
+                getBridge().getWebView().clearCache(true);
+                sp.edit().putInt("code", code).apply();
+            }
         } catch (Exception ignored) {
         }
     }

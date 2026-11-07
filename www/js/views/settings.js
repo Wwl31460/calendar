@@ -6,7 +6,7 @@ import { openSemesterSheet } from './timetable.js';
 import { setTheme, applyTheme } from '../theme.js';
 import { downloadICS } from '../ics.js';
 import { APP_VERSION, isNativeApp, lastCheckedAt, openCheckSheet, fmtDate } from '../updater.js';
-import { esc } from '../utils.js';
+import { esc, todayStr, weekdayCn } from '../utils.js';
 import { periodTime } from '../schedule.js';
 
 function row(id, iconName, label, value, extra = '') {
@@ -16,6 +16,12 @@ function row(id, iconName, label, value, extra = '') {
     <span class="val">${esc(value)}</span>
     ${extra || icon('right', 'chev')}
   </div>`;
+}
+
+/** 图标上应该显示的日期，用来和桌面实际显示的对一下 */
+function todayIconLabel() {
+  const d = new Date();
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${weekdayCn(todayStr())}`;
 }
 
 export function render() {
@@ -48,6 +54,7 @@ export function render() {
     <div class="section-label">桌面</div>
     <div class="list-card">
       ${row('widget', 'grid', '桌面小组件', isNativeApp() ? '显示今日星期与日期' : '仅安卓版')}
+      ${row('icon-sync', 'calendar', '桌面图标', isNativeApp() ? todayIconLabel() : '仅安卓版')}
     </div>
 
     <div class="section-label">数据</div>
@@ -106,6 +113,30 @@ function bindRows() {
       <p style="margin:0">3. 找到「日历」，拖到桌面即可</p>
     </div>`);
     openSheet({ title: '桌面小组件', body: wrap, actions: [{ text: '知道了', onClick: c => c() }] });
+  });
+
+  // 桌面图标：显示今天应为哪张，点一下让系统立即刷新
+  body.querySelector('[data-row="icon-sync"]').addEventListener('click', async () => {
+    const P = (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AppUpdater) || null;
+    if (!P) { toast('网页版没有桌面图标，装安卓版才能用'); return; }
+    try {
+      const r = await P.syncIcon();
+      const label = (r && r.label) || todayIconLabel();
+      toast(`已刷新为「${label}」`, 2600);
+      openSheet({
+        title: '桌面图标',
+        body: `<div style="font-size:13.5px;line-height:1.85;color:var(--text-2)">
+          <p style="margin:0 0 10px">图标上应该是：<b style="color:var(--text)">${esc(label)}</b></p>
+          <p style="margin:0 0 6px;font-weight:600;color:var(--text)">如果桌面显示的日期不对</p>
+          <p style="margin:0 0 4px">1. 长按桌面图标 → 移除</p>
+          <p style="margin:0 0 4px">2. 从「应用列表」把它拖回桌面</p>
+          <p style="margin:0">3. 还没变就重启一次手机（桌面会重新读取图标）</p>
+        </div>`,
+        actions: [{ text: '知道了', onClick: c => c() }]
+      });
+    } catch (e) {
+      toast('刷新失败，请重启手机后再试');
+    }
   });
 
   body.querySelector('[data-row="theme"]').addEventListener('click', () => {

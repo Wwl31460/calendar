@@ -5,7 +5,7 @@
 
 - 代码仓库：<https://github.com/Wwl31460/calendar>
 - 最新安装包：<https://github.com/Wwl31460/calendar/releases/latest>
-- 国内加速下载（当前 v1.3.1）：<https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.3.1/calendar-v1.3.1.apk>
+- 国内加速下载（当前 v1.3.2）：<https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.3.2/calendar-v1.3.2.apk>
 
 ---
 
@@ -25,14 +25,14 @@
 
 ### 方式 A：直接装 APK（推荐）
 
-安装包：`dist/calendar-v1.3.1.apk`（4.12 MB，已签名），或直接从 Release 下载：
+安装包：`dist/calendar-v1.3.2.apk`（4.12 MB，已签名），或直接从 Release 下载：
 
 | 通道 | 链接 |
 | --- | --- |
-| 内网加速（推荐，国内直连可用） | <https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.3.1/calendar-v1.3.1.apk> |
-| 备用加速 ① | <https://gh-proxy.com/https://github.com/Wwl31460/calendar/releases/download/v1.3.1/calendar-v1.3.1.apk> |
-| 备用加速 ② | <https://ghproxy.net/https://github.com/Wwl31460/calendar/releases/download/v1.3.1/calendar-v1.3.1.apk> |
-| GitHub 原始地址 | <https://github.com/Wwl31460/calendar/releases/download/v1.3.1/calendar-v1.3.1.apk> |
+| 内网加速（推荐，国内直连可用） | <https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.3.2/calendar-v1.3.2.apk> |
+| 备用加速 ① | <https://gh-proxy.com/https://github.com/Wwl31460/calendar/releases/download/v1.3.2/calendar-v1.3.2.apk> |
+| 备用加速 ② | <https://ghproxy.net/https://github.com/Wwl31460/calendar/releases/download/v1.3.2/calendar-v1.3.2.apk> |
+| GitHub 原始地址 | <https://github.com/Wwl31460/calendar/releases/download/v1.3.2/calendar-v1.3.2.apk> |
 
 1. 手机上打开上面的链接下载 APK（**别在微信里下**，用手机自带浏览器 / Chrome / 夸克）。
    一个通道卡住就换另一个：表格里 3 个加速通道任选，实在不行再用 GitHub 原始地址。
@@ -177,6 +177,14 @@ node scripts/push-github.mjs      # 推送（git 不通时用这个）
 > 只能卸载旧版重装（会丢数据，需先导出备份）。密钥位置见下方「签名」章节，请务必备份。
 
 ### 更新日志
+
+**v1.3.2（2026-11-07）**
+
+- **修课表班级识别（真 bug）**：房号正则也匹配「汉字 + 4 位数字」，导致 `软工2601` 被当成教室吞掉。改为「先认房号（带楼/室/馆/机房，或 教A305 / 教二108 / B201），再认班级（软工2601 / 计算机2201-2 / 2026级3班 / 软工2601、软工2602）」
+- **日志图片双击放大真正生效**：原来的双击判定只在 `touchend` 里，现在改成 `toggleZoom()`，放大以点击位置为中心，鼠标环境也支持双击；补 `Ctrl+滚轮` 缩放
+- **覆盖安装后清 WebView 缓存**：版本号变化时 `clearCache(true)`，避免「装了新版但界面还是老代码」
+- **设置页新增「桌面图标」一行**：显示今天应为「11月7日 星期六」，点一下调原生 `syncIcon` 立即刷新并给出排障步骤
+- 课表解析测试脚本支持指定样例：`node scripts/test-import.mjs samples/课表样例2.pdf`
 
 **v1.3.1（2026-11-07）**
 

@@ -81,6 +81,26 @@ public class AppUpdaterPlugin extends Plugin {
         call.resolve(ret);
     }
 
+    /**
+     * 手动刷新桌面图标。
+     *
+     * 有些桌面（尤其第三方启动器 / MIUI）对 alias 切换反应慢，
+     * 这里给用户一个「点一下就行」的按钮，顺便把今天的日期回报给页面显示。
+     */
+    @PluginMethod
+    public void syncIcon(PluginCall call) {
+        JSObject ret = new JSObject();
+        try {
+            IconSwitcher.forceRefresh(getContext());
+            ret.put("label", IconSwitcher.todayLabel());
+            ret.put("alias", IconSwitcher.todayAlias());
+        } catch (Exception e) {
+            call.reject("刷新图标失败");
+            return;
+        }
+        call.resolve(ret);
+    }
+
     /** 是否已获得「安装未知来源应用」权限 */
     @PluginMethod
     public void canInstall(PluginCall call) {
