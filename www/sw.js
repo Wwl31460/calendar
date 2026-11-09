@@ -1,5 +1,5 @@
 /* Service Worker：离线缓存 + 通知点击 */
-const CACHE = 'calendar-app-v1.3.2';
+const CACHE = 'calendar-app-v1.4.0';
 
 const ASSETS = [
   './',
@@ -21,6 +21,10 @@ const ASSETS = [
   './js/ics.js',
   './js/updater.js',
   './js/demo.js',
+  './js/cloud.js',
+  './js/account.js',
+  './js/sync.js',
+  './js/login.js',
   './js/views/calendar.js',
   './js/views/timetable.js',
   './js/views/notes.js',
@@ -28,6 +32,7 @@ const ASSETS = [
   './js/views/settings.js',
   './lib/pdf.min.js',
   './lib/pdf.worker.min.js',
+  './lib/workbuddy-cloud.global.js',
   './icons/icon-192.png',
   './icons/icon-512.png'
 ];

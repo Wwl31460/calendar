@@ -1,0 +1,5 @@
+appId: wbapp_1a2X5x6jj5r4XtiJgnmm9e
+name: 日历安装包下载
+localDir: E:\workbuddy\日历APP\dl
+appType: web
+entryHtml: index.html

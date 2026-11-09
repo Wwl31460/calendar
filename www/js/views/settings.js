@@ -8,6 +8,11 @@ import { downloadICS } from '../ics.js';
 import { APP_VERSION, isNativeApp, lastCheckedAt, openCheckSheet, fmtDate } from '../updater.js';
 import { esc, todayStr, weekdayCn } from '../utils.js';
 import { periodTime } from '../schedule.js';
+import { changePassword, isLoggedIn, logout, username } from '../account.js';
+import { syncNow, syncSummary, subscribeSync } from '../sync.js';
+import { openLogin } from '../login.js';
+
+let syncBound = false;
 
 function row(id, iconName, label, value, extra = '') {
   return `<div class="row" data-row="${id}">
@@ -30,7 +35,22 @@ export function render() {
   const permText = { granted: '已允许', denied: '已拒绝', unsupported: '不支持', default: '未开启' }[perm] || '未开启';
   const themeText = { auto: '跟随系统', light: '浅色', dark: '深色' }[s.theme || 'auto'];
 
+  const logged = isLoggedIn();
+  const uname = username();
+  const accountCard = `
+    <div class="list-card acct-card" data-row="account">
+      <div class="row" style="padding:15px 16px">
+        <div class="acct-avatar">${logged ? esc(uname.slice(0, 1)) : icon('settings', '')}</div>
+        <div class="grow" style="margin-left:12px">
+          <div class="acct-name">${logged ? esc(uname) : '登录账号'}</div>
+          <div class="acct-sub">${logged ? esc(syncSummary()) : '登录后日志、提醒、课表会同步到云端'}</div>
+        </div>
+        ${icon('right', 'chev')}
+      </div>
+    </div>`;
+
   $('#settings-body').innerHTML = `
+    ${accountCard}
     <div class="section-label">提醒</div>
     <div class="list-card">
       ${row('perm', 'bell', '通知权限', permText)}
@@ -69,7 +89,7 @@ export function render() {
       ${row('update', 'download', '检查更新', lastCheckedAt() ? fmtDate(new Date(lastCheckedAt()).toISOString()) + ' 已检查' : 'v' + APP_VERSION)}
       <div class="row"><div class="grow" style="font-size:13px;color:var(--text-2);line-height:1.65">
         日历 · ${isNativeApp() ? '安卓版' : '网页版'} v${esc(APP_VERSION)}<br>
-        数据全部保存在本机，不上传云端。<br>
+        ${logged ? '已开启云端同步，换设备登录同一账号即可恢复。' : '数据保存在本机；登录账号后可在设备间同步。'}<br>
         农历支持 1900-2100 年，法定节假日内置 2024-2027 官方安排。
       </div></div>
     </div>
@@ -80,6 +100,22 @@ export function render() {
 
 function bindRows() {
   const body = $('#settings-body');
+
+  if (!syncBound) {
+    syncBound = true;
+    subscribeSync(() => {
+      const v = $('#view-settings');
+      if (v && v.classList.contains('active')) render();
+    });
+  }
+
+  body.querySelector('[data-row="account"]').addEventListener('click', () => {
+    if (!isLoggedIn()) {
+      openLogin({ onDone: () => render() });
+      return;
+    }
+    openAccountSheet();
+  });
 
   body.querySelector('[data-row="perm"]').addEventListener('click', async () => {
     const res = await ensurePermission();
@@ -193,6 +229,93 @@ function bindRows() {
     applyTheme();
     render();
     toast('已清空');
+  });
+}
+
+function openAccountSheet() {
+  const wrap = h(`<div>
+    <div style="display:flex;align-items:center;gap:12px;padding:2px 0 16px">
+      <div class="acct-avatar">${esc(username().slice(0, 1))}</div>
+      <div style="min-width:0">
+        <div class="acct-name" style="font-size:16px">${esc(username())}</div>
+        <div class="acct-sub">${esc(syncSummary())}</div>
+      </div>
+    </div>
+    <div class="list-card" style="box-shadow:none;background:var(--surface-2);margin-bottom:0">
+      <div class="row" data-act="sync">${icon('repeat', 'ico')}<div class="grow">立即同步</div>${icon('right', 'chev')}</div>
+      <div class="row" data-act="pwd">${icon('pen', 'ico')}<div class="grow">修改密码</div>${icon('right', 'chev')}</div>
+      <div class="row" data-act="logout">${icon('trash', 'ico')}<div class="grow" style="color:var(--red)">退出登录</div></div>
+    </div>
+    <p class="hint" style="margin-top:12px">退出登录只清除本机的登录状态，数据仍保留在云端和本机。</p>
+  </div>`);
+
+  const sheet = openSheet({ title: '账号', body: wrap });
+
+  wrap.querySelector('[data-act="sync"]').addEventListener('click', async () => {
+    toast('正在同步…', 1200);
+    try {
+      const r = await syncNow('manual');
+      toast(`同步完成 · 上传 ${r.pushed} 条／接收 ${r.pulled} 条`, 2800);
+      render();
+      sheet.close();
+    } catch (e) {
+      toast((e && e.message) || '同步失败，请检查网络');
+    }
+  });
+
+  wrap.querySelector('[data-act="pwd"]').addEventListener('click', () => {
+    sheet.close();
+    openChangePasswordSheet();
+  });
+
+  wrap.querySelector('[data-act="logout"]').addEventListener('click', async () => {
+    const ok = await confirmSheet({
+      title: '退出登录',
+      message: '退出后本机数据仍然保留，重新登录可以继续同步。',
+      okText: '退出',
+      danger: true
+    });
+    if (!ok) return;
+    sheet.close();
+    await logout();
+    render();
+    toast('已退出登录');
+  });
+}
+
+function openChangePasswordSheet() {
+  const body = h(`<div>
+    <div class="field"><label>原密码</label><input class="input" type="password" id="cp-old" autocomplete="current-password" /></div>
+    <div class="field"><label>新密码</label><input class="input" type="password" id="cp-new" autocomplete="new-password" placeholder="至少 6 位" /></div>
+    <div class="field"><label>确认新密码</label><input class="input" type="password" id="cp-new2" autocomplete="new-password" /></div>
+    <p class="hint" id="cp-err"></p>
+  </div>`);
+
+  openSheet({
+    title: '修改密码',
+    body,
+    actions: [
+      { text: '取消', variant: 'secondary', onClick: c => c() },
+      {
+        text: '保存', onClick: async c => {
+          const oldPwd = body.querySelector('#cp-old').value;
+          const n1 = body.querySelector('#cp-new').value;
+          const n2 = body.querySelector('#cp-new2').value;
+          const err = body.querySelector('#cp-err');
+          if (!oldPwd) { err.textContent = '请输入原密码'; return; }
+          if (n1.length < 6) { err.textContent = '新密码至少 6 位'; return; }
+          if (n1 !== n2) { err.textContent = '两次输入的新密码不一致'; return; }
+          err.textContent = '';
+          try {
+            await changePassword(oldPwd, n1);
+            c();
+            toast('密码已修改');
+          } catch (e) {
+            err.textContent = (e && e.message) || '修改失败';
+          }
+        }
+      }
+    ]
   });
 }
 

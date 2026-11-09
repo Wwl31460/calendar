@@ -19,7 +19,7 @@ page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
 const ok = (name, cond, extra = '') => console.log(`${cond ? '✓ PASS' : '✗ FAIL'}  ${name}${extra ? '  → ' + extra : ''}`);
 
 await page.goto('http://127.0.0.1:5173/index.html', { waitUntil: 'networkidle' });
-await page.evaluate(() => localStorage.clear());
+await page.evaluate(() => { localStorage.clear(); localStorage.setItem('calapp.account.skip', '1'); });
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(600);
 

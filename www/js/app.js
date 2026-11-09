@@ -9,6 +9,9 @@ import { ensurePermission, isNative, startEngine, syncNativeSchedule } from './r
 import { applyTheme, initTheme } from './theme.js';
 import { autoCheck } from './updater.js';
 import { $, $$, closeTopSheet, sheetCount, toast } from './ui.js';
+import { isLoggedIn, skipLogin, skippedLogin } from './account.js';
+import { scheduleSync, syncNow } from './sync.js';
+import { closeLogin, loginVisible, openLogin } from './login.js';
 
 const views = {
   calendar,
@@ -24,9 +27,10 @@ let overlayClose = null;
 export function setOverlayCloser(fn) { overlayClose = fn; syncBackState(); }
 window.__setOverlayCloser = setOverlayCloser;
 
-/** 当前"可以返回上一级"的层数：弹层 / 覆盖层 / 设置页各算一层 */
+/** 当前"可以返回上一级"的层数：登录页 / 弹层 / 覆盖层 / 设置页各算一层 */
 function backDepth() {
   let n = sheetCount();
+  if (loginVisible()) n += 1;
   if (overlayClose) n += 1;
   if (current === 'settings') n += 1;
   return n;
@@ -43,6 +47,13 @@ window.__syncBackState = syncBackState;
 
 /** 原生返回键 → 逐级退回，而不是直接退出应用 */
 window.__handleBack = () => {
+  if (loginVisible()) {
+    skipLogin();
+    closeLogin();
+    toast('已跳过登录，可随时在设置里登录');
+    syncBackState();
+    return true;
+  }
   if (overlayClose) {
     const fn = overlayClose;
     overlayClose = null;
@@ -96,12 +107,16 @@ function init() {
     });
   };
   let syncTimer = null;
-  const scheduleSync = () => {
+  const scheduleNativeSync = () => {
     if (!isNative()) return;
     clearTimeout(syncTimer);
     syncTimer = setTimeout(() => syncNativeSchedule(), 2500);
   };
-  subscribe(() => { rerender(); scheduleSync(); });
+  subscribe(() => {
+    rerender();
+    scheduleNativeSync();
+    scheduleSync();     // 已登录时把改动推到云端
+  });
 
   // 首次渲染
   calendar.render();
@@ -110,6 +125,13 @@ function init() {
   startEngine();
   if (isNative()) {
     ensurePermission().then(() => syncNativeSchedule());
+  }
+
+  // 账号：已登录就拉一次云端数据；没登录且没选择跳过，就拦一道登录页
+  if (isLoggedIn()) {
+    setTimeout(() => { syncNow('startup').catch(() => {}); }, 900);
+  } else if (!skippedLogin()) {
+    setTimeout(() => openLogin(), 320);
   }
 
   // 每天自动检查一次更新（失败静默）
@@ -128,9 +150,16 @@ function init() {
     toast(`有 ${d.count} 条提醒已错过：${d.names}`);
   });
 
-  // 切回前台刷新
+  // 切回前台刷新；已登录时顺手拉一次云端（一分钟内不重复）
+  let lastForegroundSync = 0;
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) rerender();
+    if (document.hidden) return;
+    rerender();
+    if (!isLoggedIn()) return;
+    const now = Date.now();
+    if (now - lastForegroundSync < 60000) return;
+    lastForegroundSync = now;
+    syncNow('foreground').catch(() => {});
   });
 
   // Service Worker（仅网页版需要；APK 内资源已内置，避免缓存旧版本）

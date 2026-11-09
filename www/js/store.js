@@ -47,6 +47,8 @@ function defaults() {
     notes: [],
     courses: [],
     settings: { ...DEFAULT_SETTINGS },
+    settingsUpdatedAt: 0,  // 用户改过设置的时刻（默认值不算，避免覆盖云端）
+    tombstones: {},        // 已删除项：'kind:recId' -> 删除时刻，用于云端同步
     fired: {},   // 已触发的提醒 key
     meta: { createdAt: Date.now() }
   };
@@ -65,6 +67,8 @@ function load() {
       reminders: Array.isArray(data.reminders) ? data.reminders : [],
       notes: Array.isArray(data.notes) ? data.notes : [],
       courses: Array.isArray(data.courses) ? data.courses : [],
+      settingsUpdatedAt: Number(data.settingsUpdatedAt) || 0,
+      tombstones: data.tombstones && typeof data.tombstones === 'object' ? data.tombstones : {},
       fired: data.fired || {}
     };
   } catch (e) {
@@ -97,8 +101,22 @@ export function saveNow() {
   localStorage.setItem(KEY, JSON.stringify(db));
 }
 
+/* ---------- 同步辅助 ---------- */
+/** 记录删除时刻，供云端同步判断「是删了」而不是「还没上传」 */
+function markDeleted(kind, id) {
+  db.tombstones[`${kind}:${id}`] = Date.now();
+}
+export function clearTombstones() {
+  db.tombstones = {};
+  persist();
+}
+export function resetTombstones(obj) {
+  db.tombstones = obj && typeof obj === 'object' ? obj : {};
+}
+
 /* ---------- 提醒 ---------- */
 export function addReminder(data) {
+  const now = Date.now();
   const r = {
     id: uid('r_'),
     title: '提醒',
@@ -109,9 +127,11 @@ export function addReminder(data) {
     lunar: null,              // { m, d, isLeap }
     enabled: true,
     color: 'blue',
-    createdAt: Date.now(),
+    createdAt: now,
+    updatedAt: now,
     ...data
   };
+  delete db.tombstones[`reminder:${r.id}`];
   db.reminders.push(r);
   persist();
   return r;
@@ -120,12 +140,13 @@ export function addReminder(data) {
 export function updateReminder(id, patch) {
   const i = db.reminders.findIndex(r => r.id === id);
   if (i < 0) return;
-  db.reminders[i] = { ...db.reminders[i], ...patch };
+  db.reminders[i] = { ...db.reminders[i], ...patch, updatedAt: Date.now() };
   persist();
 }
 
 export function removeReminder(id) {
   db.reminders = db.reminders.filter(r => r.id !== id);
+  markDeleted('reminder', id);
   persist();
 }
 
@@ -143,6 +164,7 @@ export function addNote({ date, time, title = '', text = '', images = [] }) {
     updatedAt: now.getTime()
   };
   db.notes.push(n);
+  delete db.tombstones[`note:${n.id}`];
   persist();
   return n;
 }
@@ -164,11 +186,13 @@ export function updateNote(id, patch) {
 
 export function removeNote(id) {
   db.notes = db.notes.filter(n => n.id !== id);
+  markDeleted('note', id);
   persist();
 }
 
 /* ---------- 课程 ---------- */
 export function addCourse(data) {
+  const now = Date.now();
   const c = {
     id: uid('c_'),
     name: '',
@@ -180,8 +204,11 @@ export function addCourse(data) {
     end: 2,         // 结束节
     weeks: [],      // [1,2,3...]
     color: 0,
+    createdAt: now,
+    updatedAt: now,
     ...data
   };
+  delete db.tombstones[`course:${c.id}`];
   db.courses.push(c);
   persist();
   return c;
@@ -190,19 +217,27 @@ export function addCourse(data) {
 export function updateCourse(id, patch) {
   const i = db.courses.findIndex(c => c.id === id);
   if (i < 0) return;
-  db.courses[i] = { ...db.courses[i], ...patch };
+  db.courses[i] = { ...db.courses[i], ...patch, updatedAt: Date.now() };
   persist();
 }
 
 export function removeCourse(id) {
   db.courses = db.courses.filter(c => c.id !== id);
+  markDeleted('course', id);
   persist();
 }
 
 /* ---------- 设置 ---------- */
 export function setSetting(key, value) {
   db.settings[key] = value;
+  db.settingsUpdatedAt = Date.now();
   persist();
+}
+
+/** 云端拉下来的设置：不发时间戳，避免回写成「本地刚改过」 */
+export function applyRemoteSettings(settings, rev) {
+  db.settings = { ...db.settings, ...(settings || {}) };
+  db.settingsUpdatedAt = Number(rev) || 0;
 }
 
 export function exportAll() {
@@ -218,11 +253,22 @@ export function importAll(json) {
   db.courses = Array.isArray(data.courses) ? data.courses : [];
   db.settings = { ...d.settings, ...(data.settings || {}) };
   db.fired = data.fired || {};
+  // 恢复的是整份快照：清空墓碑，并让本地设置成为最新
+  db.tombstones = data.tombstones && typeof data.tombstones === 'object' ? data.tombstones : {};
+  db.settingsUpdatedAt = Date.now();
   persist();
 }
 
 export function clearAll() {
-  const d = defaults();
-  Object.keys(d).forEach(k => { db[k] = d[k]; });
+  // 已登录时云端也要一起清掉，否则下次同步会把数据拉回来
+  for (const n of db.notes) markDeleted('note', n.id);
+  for (const r of db.reminders) markDeleted('reminder', r.id);
+  for (const c of db.courses) markDeleted('course', c.id);
+  db.reminders = [];
+  db.notes = [];
+  db.courses = [];
+  db.settings = { ...DEFAULT_SETTINGS };
+  db.settingsUpdatedAt = Date.now();
+  db.fired = {};
   persist();
 }

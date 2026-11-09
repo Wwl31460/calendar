@@ -1486,3 +1486,100 @@ select.input {
 .lb-nav:active { background: rgba(255, 255, 255, .22); }
 
 .tt-pdf-card .pd-ico.img { background: rgba(61,92,246,.12); color: var(--primary); }
+
+/* =========================================================
+   登录 / 注册
+   ========================================================= */
+.auth {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 20px calc(28px + var(--safe-b));
+  background: var(--bg);
+  overflow-y: auto;
+  animation: authIn .26s ease both;
+}
+.auth[hidden] { display: none; }
+@keyframes authIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+body.auth-open .tabbar,
+body.auth-open .app { pointer-events: none; }
+
+.auth-inner { width: 100%; max-width: 380px; }
+
+.auth-brand { text-align: center; margin-bottom: 24px; }
+.auth-mark {
+  width: 74px; height: 74px; margin: 0 auto 16px;
+  border-radius: 22px;
+  display: grid; place-items: center;
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 12px 28px rgba(61, 92, 246, .3);
+}
+.auth-mark svg { width: 36px; height: 36px; }
+.auth-brand h2 { margin: 0 0 8px; font-size: 23px; font-weight: 700; letter-spacing: -.4px; }
+.auth-sub { margin: 0; font-size: 13px; color: var(--text-2); line-height: 1.65; }
+
+.auth-form {
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  padding: 18px 16px 16px;
+  box-shadow: var(--shadow-sm);
+}
+.auth-form .field { margin-bottom: 13px; }
+.auth-err {
+  min-height: 18px;
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--red);
+  word-break: break-word;
+}
+.auth-submit { width: 100%; flex: none; height: 48px; }
+.auth-submit:disabled { opacity: .62; }
+
+.auth-link {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 9px;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-size: 13.5px;
+}
+.auth-link:active { opacity: .7; }
+.auth-link.muted { color: var(--text-3); margin-top: 2px; }
+
+.auth-hint {
+  margin: 20px 0 0;
+  text-align: center;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-3);
+}
+
+/* 设置页账号区 */
+.acct-card { cursor: pointer; }
+.acct-name { font-size: 17px; font-weight: 650; letter-spacing: -.2px; }
+.acct-sub { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+.acct-avatar {
+  width: 42px; height: 42px; border-radius: 14px;
+  display: grid; place-items: center;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 16px; font-weight: 700;
+  flex: none;
+}
+.acct-avatar svg { width: 20px; height: 20px; }
+
+/* 矮屏（小手机 / 弹出键盘）时顶部对齐，避免内容被挤压 */
+@media (max-height: 660px) {
+  .auth { align-items: flex-start; padding-top: 36px; }
+  .auth-mark { width: 60px; height: 60px; border-radius: 18px; margin-bottom: 12px; }
+  .auth-mark svg { width: 30px; height: 30px; }
+  .auth-brand { margin-bottom: 18px; }
+  .auth-brand h2 { font-size: 20px; }
+}

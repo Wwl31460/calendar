@@ -37,11 +37,19 @@
   <p class="sub">图标随日期自动切换 · 日志图片可放大 · 课表按行序解析 · 今天列高亮</p>
 
   <div class="card">
-    <a class="btn" href="calendar-v1.3.2.apk" download>下载安装包（4.12 MB）</a>
+    <a class="btn" id="dl" href="calendar-v1.3.2.apk" download>下载安装包（4.12 MB）</a>
     <div class="meta"><span>Android 7.0 及以上</span><span>已签名 · 覆盖安装不丢数据</span></div>
     <div class="kv"><span>SHA-256</span><code>a4ed1cf4be7b69149b1a8dafc20e7b5a301cc0d56c382ee90e4ffb2f209fad23</code></div>
     <div class="kv"><span>大小</span><b>4,318,394 字节</b></div>
   </div>
+  <script>
+    // 分享链接带 ?sharecode=xxx，静态资源也要带上，否则会被拦成 403
+    (function () {
+      var a = document.getElementById('dl');
+      var q = location.search || '';
+      if (q) a.href = 'calendar-v1.3.2.apk' + q;
+    })();
+  </script>
 
   <div class="card">
     <h2>安装步骤</h2>
