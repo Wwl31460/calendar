@@ -5,7 +5,7 @@
 
 - 代码仓库：<https://github.com/Wwl31460/calendar>
 - 最新安装包：<https://github.com/Wwl31460/calendar/releases/latest>
-- 国内加速下载（当前 v1.3.2）：<https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.3.2/calendar-v1.3.2.apk>
+- 国内加速下载（当前 v1.4.1）：<https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.4.1/calendar-v1.4.1.apk>
 
 ---
 
@@ -26,14 +26,14 @@
 
 ### 方式 A：直接装 APK（推荐）
 
-安装包：`dist/calendar-v1.3.2.apk`（4.12 MB，已签名），或直接从 Release 下载：
+安装包：`dist/calendar-v1.4.1.apk`（4.15 MB，已签名），或直接从 Release 下载：
 
 | 通道 | 链接 |
 | --- | --- |
-| 内网加速（推荐，国内直连可用） | <https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.3.2/calendar-v1.3.2.apk> |
-| 备用加速 ① | <https://gh-proxy.com/https://github.com/Wwl31460/calendar/releases/download/v1.3.2/calendar-v1.3.2.apk> |
-| 备用加速 ② | <https://ghproxy.net/https://github.com/Wwl31460/calendar/releases/download/v1.3.2/calendar-v1.3.2.apk> |
-| GitHub 原始地址 | <https://github.com/Wwl31460/calendar/releases/download/v1.3.2/calendar-v1.3.2.apk> |
+| 内网加速（推荐，国内直连可用） | <https://ghfast.top/https://github.com/Wwl31460/calendar/releases/download/v1.4.1/calendar-v1.4.1.apk> |
+| 备用加速 ① | <https://gh-proxy.com/https://github.com/Wwl31460/calendar/releases/download/v1.4.1/calendar-v1.4.1.apk> |
+| 备用加速 ② | <https://ghproxy.net/https://github.com/Wwl31460/calendar/releases/download/v1.4.1/calendar-v1.4.1.apk> |
+| GitHub 原始地址 | <https://github.com/Wwl31460/calendar/releases/download/v1.4.1/calendar-v1.4.1.apk> |
 
 1. 手机上打开上面的链接下载 APK（**别在微信里下**，用手机自带浏览器 / Chrome / 夸克）。
    一个通道卡住就换另一个：表格里 3 个加速通道任选，实在不行再用 GitHub 原始地址。
@@ -178,6 +178,15 @@ node scripts/push-github.mjs      # 推送（git 不通时用这个）
 > 只能卸载旧版重装（会丢数据，需先导出备份）。密钥位置见下方「签名」章节，请务必备份。
 
 ### 更新日志
+
+**v1.4.1（2026-11-09）**
+
+- **新增账号登录 + 云同步**：用户名 + 密码登录（初始账号 **吴文林 / 123456**），登录后日志 / 提醒 / 课表 / 设置同步到云端，换设备登录同一账号即可恢复
+- 同步按 `updatedAt` 后写覆盖，本地有云端没有的补传，**删除也同步**（墓碑机制，换设备不会复活）
+- 设置页顶部新增账号卡片：显示「已同步 · 今天 10:29」，点开可立即同步 / 修改密码 / 退出登录
+- 不登录也能照常使用，启动时可选「先不登录，只用本机数据」
+- 密码在云端用 bcrypt 加盐哈希，客户端只能调用经过身份校验的接口，读不到别人的数据
+- 云端基线修复：老版本没有「设置修改时间」，首次登录时把本机现有设置一并作为基线上传
 
 **v1.3.2（2026-11-07）**
 
