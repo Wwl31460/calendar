@@ -119,7 +119,10 @@ export function syncNow(reason = 'manual') {
 
       /* 4. 设置 */
       const sRemote = remote.get('setting:app');
-      if ((Number(db.settingsUpdatedAt) || 0) > (Number(sRemote && sRemote.rev) || 0)) {
+      if (!sRemote && rows.length === 0) {
+        // 首次建立基线：把本机现在这套设置一起传上去（老版本没有 settingsUpdatedAt）
+        push.push({ kind: 'setting', recId: 'app', payload: db.settings, rev: Date.now(), deleted: false });
+      } else if ((Number(db.settingsUpdatedAt) || 0) > (Number(sRemote && sRemote.rev) || 0)) {
         push.push({ kind: 'setting', recId: 'app', payload: db.settings, rev: db.settingsUpdatedAt, deleted: false });
       }
 
