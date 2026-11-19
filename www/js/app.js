@@ -152,11 +152,17 @@ function init() {
 
   // 切回前台刷新；已登录时顺手拉一次云端（一分钟内不重复）
   let lastForegroundSync = 0;
+  let lastAlarmSync = 0;
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
     rerender();
-    if (!isLoggedIn()) return;
+    // 部分系统会在后台清掉闹钟，回到前台补排一次（一分钟内不重复）
     const now = Date.now();
+    if (isNative() && now - lastAlarmSync > 60000) {
+      lastAlarmSync = now;
+      syncNativeSchedule();
+    }
+    if (!isLoggedIn()) return;
     if (now - lastForegroundSync < 60000) return;
     lastForegroundSync = now;
     syncNow('foreground').catch(() => {});

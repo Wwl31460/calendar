@@ -27,6 +27,10 @@ public final class IconSwitcher {
 
     private static final String TICK_ACTION = "cn.rili.calendar.ICON_TICK";
     private static final int REQ_TICK = 2002;
+    /** 一次排 7 天的零点，某一天被系统吞掉也不会断链 */
+    private static final int TICK_DAYS = 7;
+    /** 当天再加几个「只是检查一下日期」的兜底时刻（9:00 / 14:00 / 20:00） */
+    private static final int[][] SAME_DAY_PROBES = {{9, 0}, {14, 0}, {20, 0}};
 
     private IconSwitcher() {
     }
@@ -63,7 +67,7 @@ public final class IconSwitcher {
         PackageManager pm = app.getPackageManager();
 
         if (target.equals(current) && isOn(pm, app.getPackageName(), target)) {
-            scheduleNextDay(app);
+            scheduleWindow(app);
             return;
         }
 
@@ -86,14 +90,28 @@ public final class IconSwitcher {
         }
 
         sp.edit().putString(KEY, target).apply();
-        scheduleNextDay(app);
+        scheduleWindow(app);
     }
 
+    /**
+     * 这个 alias 现在是不是「真的启用」。
+     *
+     * 注意：清单里所有 alias 都写的是 enabled="false"，所以返回 DEFAULT 并不等于启用，
+     * 还要看清单里的值——不然会把「其实关着」当成「已经开着」，该切的图标切不过去。
+     */
     private static boolean isOn(PackageManager pm, String pkg, String alias) {
         try {
-            int st = pm.getComponentEnabledSetting(new ComponentName(pkg, pkg + "." + alias));
-            return st == PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-                    || st == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT;
+            ComponentName cn = new ComponentName(pkg, pkg + "." + alias);
+            int st = pm.getComponentEnabledSetting(cn);
+            if (st == PackageManager.COMPONENT_ENABLED_STATE_ENABLED) return true;
+            if (st == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                    || st == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER
+                    || st == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED) {
+                return false;
+            }
+            // DEFAULT：以清单为准（清单里若 enabled=false，这里会查不到该组件）
+            android.content.pm.ActivityInfo ai = pm.getActivityInfo(cn, 0);
+            return ai != null && ai.enabled;
         } catch (Exception e) {
             return false;
         }
@@ -110,21 +128,50 @@ public final class IconSwitcher {
         }
     }
 
-    /** 排下一次「零点后 20 秒」的切换闹钟 */
-    static void scheduleNextDay(Context context) {
+    /**
+     * 排好接下来一段时间的「跨天检查」。
+     *
+     * <p>为什么不止一个闹钟：只排下一次零点，只要那一次被系统吞掉（国产 ROM 省电策略、
+     * 强制停止、偶发丢广播），链条就断了，之后只能等用户打开 App 才恢复——这正是
+     * 「图标要等我点开 App 才变」的根因。这里一次排 7 天的零点，外加当天 3 个检查点，
+     * 任何一次触发都会把整组重新排一遍，形成自愈。</p>
+     */
+    static void scheduleWindow(Context context) {
         AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
         if (am == null) return;
 
-        Calendar next = Calendar.getInstance();
-        next.add(Calendar.DAY_OF_YEAR, 1);
-        next.set(Calendar.HOUR_OF_DAY, 0);
-        next.set(Calendar.MINUTE, 0);
-        next.set(Calendar.SECOND, 20);
-        next.set(Calendar.MILLISECOND, 0);
+        long now = System.currentTimeMillis();
 
+        // 1) 未来 7 天的零点后 20 秒
+        for (int i = 0; i < TICK_DAYS; i++) {
+            Calendar c = Calendar.getInstance();
+            c.add(Calendar.DAY_OF_YEAR, i);
+            c.set(Calendar.HOUR_OF_DAY, 0);
+            c.set(Calendar.MINUTE, 0);
+            c.set(Calendar.SECOND, 20);
+            c.set(Calendar.MILLISECOND, 0);
+            long at = c.getTimeInMillis();
+            if (at <= now) continue;
+            setAlarm(am, context, REQ_TICK + i, at);
+        }
+
+        // 2) 当天几个兜底检查时刻（日期没变时 sync() 会直接返回，几乎零开销）
+        Calendar probe = Calendar.getInstance();
+        for (int i = 0; i < SAME_DAY_PROBES.length; i++) {
+            probe.setTimeInMillis(now);
+            probe.set(Calendar.HOUR_OF_DAY, SAME_DAY_PROBES[i][0]);
+            probe.set(Calendar.MINUTE, SAME_DAY_PROBES[i][1]);
+            probe.set(Calendar.SECOND, 5);
+            probe.set(Calendar.MILLISECOND, 0);
+            long at = probe.getTimeInMillis();
+            if (at <= now) continue;
+            setAlarm(am, context, REQ_TICK + 20 + i, at);
+        }
+    }
+
+    private static void setAlarm(AlarmManager am, Context context, int req, long at) {
         Intent tick = new Intent(context, DayIconReceiver.class).setAction(TICK_ACTION);
-        PendingIntent pi = PendingIntent.getBroadcast(context, REQ_TICK, tick, flags());
-        long at = next.getTimeInMillis();
+        PendingIntent pi = PendingIntent.getBroadcast(context, req, tick, flags());
         try {
             if (Build.VERSION.SDK_INT >= 31 && !am.canScheduleExactAlarms()) {
                 am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
@@ -138,6 +185,20 @@ public final class IconSwitcher {
                 am.set(AlarmManager.RTC_WAKEUP, at, pi);
             } catch (Exception ignored) {
             }
+        }
+    }
+
+    /**
+     * 只保证「闹钟都排上了」，不动桌面图标。
+     *
+     * <p>App 启动时调用：此时如果立刻禁用「刚刚点进来的那张图标」，系统会把当前任务一起
+     * 结束掉（用户看到的就是「点开闪退」）。真正的切换放到 onStop 之后。</p>
+     */
+    public static void ensureScheduled(Context context) {
+        if (context == null) return;
+        try {
+            scheduleWindow(context.getApplicationContext());
+        } catch (Exception ignored) {
         }
     }
 
@@ -168,6 +229,6 @@ public final class IconSwitcher {
         }
         app.getSharedPreferences(PREF, Context.MODE_PRIVATE)
                 .edit().putString(KEY, target).apply();
-        scheduleNextDay(app);
+        scheduleWindow(app);
     }
 }

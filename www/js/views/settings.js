@@ -1,6 +1,7 @@
 /* ---------- 设置页 ---------- */
 import { buildPeriodTimes, clearAll, db, exportAll, importAll, setSetting } from '../store.js';
-import { ensurePermission, notify, permissionState } from '../reminder.js';
+import { ensurePermission, permissionState, refreshAlarmStatus } from '../reminder.js';
+import { hasNativeAlarm, openSystemSetting, ringNow, statusHealthy, stopRing, testAlarm } from '../alarm.js';
 import { $, confirmSheet, h, icon, openSheet, segmented, toast } from '../ui.js';
 import { openSemesterSheet } from './timetable.js';
 import { setTheme, applyTheme } from '../theme.js';
@@ -13,20 +14,104 @@ import { syncNow, syncSummary, subscribeSync } from '../sync.js';
 import { openLogin } from '../login.js';
 
 let syncBound = false;
+let statusTimer = null;
+let lastStatusJson = '';
 
-function row(id, iconName, label, value, extra = '') {
+function row(id, iconName, label, value, extra = '', valClass = '') {
   return `<div class="row" data-row="${id}">
     ${icon(iconName, 'ico')}
     <div class="grow">${label}</div>
-    <span class="val">${esc(value)}</span>
+    <span class="val${valClass ? ' ' + valClass : ''}">${esc(value)}</span>
     ${extra || icon('right', 'chev')}
   </div>`;
+}
+
+/** 「提醒响铃」状态是否一切正常 */
+function alarmOk() {
+  const st = window.__alarmStatus;
+  return !st || statusHealthy(st);
 }
 
 /** 图标上应该显示的日期，用来和桌面实际显示的对一下 */
 function todayIconLabel() {
   const d = new Date();
   return `${d.getMonth() + 1}月${d.getDate()}日 ${weekdayCn(todayStr())}`;
+}
+
+/** 「提醒响铃」这一行显示什么 */
+function alarmSummary() {
+  if (!hasNativeAlarm()) return '仅安卓版';
+  const st = window.__alarmStatus;
+  if (!st) return '读取中…';
+  if (statusHealthy(st)) return st.scheduled > 0 ? `已排 ${st.scheduled} 条` : '正常';
+  const bad = [];
+  if (!st.notifications) bad.push('通知');
+  if (!st.exact) bad.push('准点');
+  if (st.muted) bad.push('音量');
+  return bad.length ? '需放行：' + bad.join('·') : '正常';
+}
+
+/** 提醒响铃诊断面板：把三个会影响「响不响」的开关摊开给用户 */
+function openAlarmSheet() {
+  const st = window.__alarmStatus || {};
+  const ok = (v) => `<span style="color:${v ? 'var(--green)' : 'var(--red)'};font-weight:600">${v ? '已开启' : '未开启'}</span>`;
+  const volText = st.alarmVolumeMax ? `${st.alarmVolume}/${st.alarmVolumeMax}` : '—';
+
+  const wrap = h(`<div style="font-size:13.5px;line-height:1.75;color:var(--text-2)">
+    <div style="display:grid;gap:10px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between"><span>通知权限</span>${ok(st.notifications)}</div>
+      <div style="display:flex;justify-content:space-between"><span>精确闹钟（准点响）</span>${ok(st.exact)}</div>
+      <div style="display:flex;justify-content:space-between"><span>电池优化</span>${ok(st.batteryOk)}</div>
+      <div style="display:flex;justify-content:space-between"><span>闹钟音量</span>
+        <span style="color:${st.muted ? 'var(--red)' : 'var(--text)'};font-weight:600">${volText}${st.muted ? ' 静音' : ''}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between"><span>已排提醒</span><span style="color:var(--text);font-weight:600">${st.scheduled || 0} 条</span></div>
+    </div>
+    <p style="margin:0 0 10px;font-size:12.5px;color:var(--text-3);line-height:1.7">
+      提醒走的是系统「闹钟」音量，不是铃声音量。上面几项任意一项没放行，手机都可能不响。
+    </p>
+    <p style="margin:0 0 14px;font-size:12.5px;color:var(--text-3);line-height:1.7">
+      如果手机管家「一键清理」过本应用，系统会把已排好的闹钟一起清掉，要到下次打开 App 才会重排。
+      把本应用加入<b style="color:var(--text-2)">自启动 / 后台白名单</b>，提醒和图标才会一直准点。
+    </p>
+  </div>`);
+
+  const btn = (text, kind) => {
+    const b = document.createElement('button');
+    b.className = 'btn' + (kind === 'primary' ? '' : ' secondary');
+    b.style.cssText = 'width:100%;margin-bottom:8px;flex:none';
+    b.textContent = text;
+    return b;
+  };
+
+  const b1 = btn('试听铃声（立即响）', 'primary');
+  b1.addEventListener('click', async () => {
+    await ringNow('提醒响铃测试', '就是现在这个声音，到点会一直响到你点关闭');
+    toast('正在响铃，点通知上的「关闭」或等 60 秒自动停止');
+  });
+
+  const b2 = btn('打开通知设置');
+  b2.addEventListener('click', () => openSystemSetting('notifications'));
+
+  const b3 = btn('允许精确闹钟');
+  b3.addEventListener('click', () => openSystemSetting('exact'));
+
+  const b4 = btn('关闭电池优化（更可靠）');
+  b4.addEventListener('click', () => openSystemSetting('battery'));
+
+  const b5 = btn('允许后台自启动（国产手机建议开）');
+  b5.addEventListener('click', () => openSystemSetting('autostart'));
+
+  const b6 = btn('停止响铃');
+  b6.addEventListener('click', () => stopRing());
+
+  [b1, b2, b3, b4, b5, b6].forEach(b => wrap.appendChild(b));
+
+  openSheet({
+    title: '提醒响铃',
+    body: wrap,
+    actions: [{ text: '关闭', onClick: c => c() }]
+  });
 }
 
 export function render() {
@@ -53,8 +138,8 @@ export function render() {
     ${accountCard}
     <div class="section-label">提醒</div>
     <div class="list-card">
-      ${row('perm', 'bell', '通知权限', permText)}
-      ${row('test', 'info', '发送一条测试通知', '')}
+      ${isNativeApp() ? row('alarm', 'bell', '提醒响铃', alarmSummary(), '', alarmOk() ? '' : 'warn') : row('perm', 'bell', '通知权限', permText)}
+      ${isNativeApp() ? row('alarm-test', 'info', '响铃测试', hasNativeAlarm() ? '6 秒后响' : '仅安卓版') : ''}
       ${row('course-notify', 'clock', '上课提醒', s.courseNotify ? `提前 ${s.courseAhead} 分钟` : '已关闭')}
       ${row('ics', 'calendar', '导出到系统日历', '.ics')}
     </div>
@@ -96,6 +181,21 @@ export function render() {
     <div style="height:20px"></div>`;
 
   bindRows();
+  refreshStatusIfNeeded();
+}
+
+/** 设置页每次打开时读一次原生闹钟状态（只读一次，状态不变不重绘） */
+function refreshStatusIfNeeded() {
+  if (!hasNativeAlarm()) return;
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(async () => {
+    const st = await refreshAlarmStatus();
+    const j = JSON.stringify(st || null);
+    if (j === lastStatusJson) return;
+    lastStatusJson = j;
+    const v = $('#view-settings');
+    if (v && v.classList.contains('active')) render();
+  }, 260);
 }
 
 function bindRows() {
@@ -117,7 +217,8 @@ function bindRows() {
     openAccountSheet();
   });
 
-  body.querySelector('[data-row="perm"]').addEventListener('click', async () => {
+  const permRow = body.querySelector('[data-row="perm"]');
+  if (permRow) permRow.addEventListener('click', async () => {
     const res = await ensurePermission();
     if (res === 'granted') { toast('通知权限已开启'); render(); }
     else if (res === 'denied') toast('已被拒绝，请到系统设置中允许通知');
@@ -125,9 +226,21 @@ function bindRows() {
     else toast('未获得权限');
   });
 
-  body.querySelector('[data-row="test"]').addEventListener('click', async () => {
-    await notify('测试提醒', '通知正常工作，到点会像这样提醒你 🎉', 'test-' + Date.now());
-    toast('已发送测试通知');
+  const alarmRow = body.querySelector('[data-row="alarm"]');
+  if (alarmRow) alarmRow.addEventListener('click', async () => {
+    if (!hasNativeAlarm()) { toast('当前版本不支持，装最新安卓版才能用'); return; }
+    await refreshAlarmStatus();
+    openAlarmSheet();
+  });
+
+  const alarmTestRow = body.querySelector('[data-row="alarm-test"]');
+  if (alarmTestRow) alarmTestRow.addEventListener('click', async () => {
+    if (!hasNativeAlarm()) { toast('当前版本不支持，装最新安卓版才能用'); return; }
+    // 没给通知权限时先要权限，否则排上了也不会显示
+    if (window.__nativePerm !== 'granted') await ensurePermission();
+    const r = await testAlarm(6);
+    if (r && r.ok) toast('6 秒后开始响铃，把手机放一边等它响', 3400);
+    else toast('排程失败，请到「提醒响铃」里检查通知与精确闹钟权限');
   });
 
   body.querySelector('[data-row="course-notify"]').addEventListener('click', openCourseNotifySheet);

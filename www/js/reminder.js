@@ -3,6 +3,7 @@ import { db, persist } from './store.js';
 import { addDays, at, pad2, parseYmd, ymd } from './utils.js';
 import { solar2lunar, lunar2solar } from './lunar.js';
 import { coursesOnDate, weekOf } from './schedule.js';
+import { alarmPlugin, scheduleAlarms, requestNotificationPermission, alarmStatus } from './alarm.js';
 
 const WINDOW_MS = 90 * 1000;        // 触发容差（容忍后台节流）
 const CATCHUP_MS = 12 * 3600 * 1000; // 启动时补发窗口
@@ -125,51 +126,87 @@ export function permissionState() {
 }
 
 /**
- * 在原生环境下，把未来 40 天的提醒与上课提醒一次性排入系统任务队列，
- * 这样即使 App 被划掉，系统也能准时弹通知。
+ * 把未来 40 天要响的提醒 + 上课提醒算成扁平清单。
+ * 原生闹钟和 LocalNotifications 兜底都用这一份，保证「算的」和「排的」一致。
  */
-export async function syncNativeSchedule() {
-  const LN = nativePlugin();
-  if (!LN) return false;
-  try {
-    const pending = await LN.getPending();
-    const old = (pending && pending.notifications) || [];
-    if (old.length) await LN.cancel({ notifications: old.map(n => ({ id: n.id })) });
-  } catch (e) { /* ignore */ }
-
+export function buildScheduleItems() {
   const now = new Date();
   const list = [];
+  const push = (id, t, title, body, kind) => {
+    if (!t) return;
+    if (t.getTime() <= now.getTime() + 5000) return;
+    list.push({ id, at: t.getTime(), title, body, kind });
+  };
+
   for (let i = 0; i < 40; i++) {
     const day = addDays(now, i);
     const ds = ymd(day);
     for (const r of db.reminders) {
       if (!r.enabled) continue;
       const t = occurrenceOnDay(r, ds);
-      if (t && t.getTime() > now.getTime() + 5000) {
-        list.push({ title: r.title || '提醒', body: r.note || repeatLabel(r), at: t });
-      }
+      push(`${r.id}@${ds}T${r.time}`, t, r.title || '提醒', r.note || repeatLabel(r), 'reminder');
     }
     if (db.settings.courseNotify && db.settings.semesterStart) {
       for (const c of coursesOnDate(day)) {
         if (!/^\d{2}:\d{2}$/.test(c.startTime)) continue;
         const start = at(ds, c.startTime);
         const remindAt = new Date(start.getTime() - (Number(db.settings.courseAhead) || 0) * 60000);
-        if (remindAt.getTime() > now.getTime() + 5000) {
-          list.push({
-            title: `上课提醒 · ${c.name}`,
-            body: `${c.startTime} 开始${c.room ? ' · ' + c.room : ''}`,
-            at: remindAt
-          });
-        }
+        push(
+          `course:${c.id}:${ds}`,
+          remindAt,
+          `上课提醒 · ${c.name}`,
+          `${c.startTime} 开始${c.room ? ' · ' + c.room : ''}`,
+          'course'
+        );
       }
     }
   }
+  return list.sort((a, b) => a.at - b.at).slice(0, 200);
+}
 
-  const notifications = list.slice(0, 400).map((n, i) => ({
+/**
+ * 在原生环境下，把未来 40 天的提醒与上课提醒一次性排入系统任务队列，
+ * 这样即使 App 被划掉，系统也能准时响铃。
+ *
+ * 优先用自带 CalendarAlarm（走闹钟音量、循环响铃）；没有时退回 LocalNotifications。
+ */
+export async function syncNativeSchedule() {
+  const items = buildScheduleItems();
+
+  if (alarmPlugin()) {
+    const r = await scheduleAlarms(items);
+    return !!(r && typeof r.count === 'number');
+  }
+
+  const LN = nativePlugin();
+  if (!LN) return false;
+
+  // 兜底路径也必须先把渠道建出来，否则 Android 8+ 会直接丢弃通知（原来就栽在这）
+  try {
+    if (LN.createChannel) {
+      await LN.createChannel({
+        id: 'reminders',
+        name: '日历提醒',
+        description: '提醒到点通知',
+        importance: 5,
+        visibility: 1,
+        sound: 'default',
+        vibration: true
+      });
+    }
+  } catch (e) { /* 渠道已存在时可能抛错，忽略 */ }
+
+  try {
+    const pending = await LN.getPending();
+    const old = (pending && pending.notifications) || [];
+    if (old.length) await LN.cancel({ notifications: old.map(n => ({ id: n.id })) });
+  } catch (e) { /* ignore */ }
+
+  const notifications = items.map((n, i) => ({
     id: 1000 + i,
     title: n.title,
     body: n.body,
-    schedule: { at: n.at, allowWhileIdle: true },
+    schedule: { at: new Date(n.at), allowWhileIdle: true },
     channelId: 'reminders',
     autoCancel: true
   }));
@@ -185,6 +222,28 @@ export async function syncNativeSchedule() {
 
 /* ---------- 通知 ---------- */
 export async function ensurePermission() {
+  // 自带闹钟：权限走 NotificationManagerCompat + POST_NOTIFICATIONS 运行时请求
+  if (alarmPlugin()) {
+    try {
+      const before = await alarmStatus();
+      if (before && before.notifications) {
+        window.__nativePerm = 'granted';
+        window.__alarmStatus = before;
+        syncNativeSchedule();
+        return 'granted';
+      }
+      await requestNotificationPermission();
+      await new Promise(r => setTimeout(r, 900));   // 等用户在系统弹窗上点完
+      const after = await alarmStatus();
+      window.__alarmStatus = after;
+      window.__nativePerm = after && after.notifications ? 'granted' : 'denied';
+      if (window.__nativePerm === 'granted') syncNativeSchedule();
+      return window.__nativePerm;
+    } catch (e) {
+      return 'denied';
+    }
+  }
+
   const LN = nativePlugin();
   if (LN) {
     try {
@@ -208,21 +267,21 @@ export async function ensurePermission() {
   }
 }
 
-export async function notify(title, body, tag) {
-  // Capacitor 原生环境优先
-  const LP = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications;
-  if (LP) {
-    try {
-      await LP.schedule({
-        notifications: [{
-          id: Math.floor(Math.random() * 100000),
-          title, body,
-          schedule: { at: new Date(Date.now() + 600) }
-        }]
-      });
-      return;
-    } catch (e) { /* 回落到 Web 通知 */ }
+/** 读取一次原生闹钟的整体状态，供设置页自检显示 */
+export async function refreshAlarmStatus() {
+  if (!alarmPlugin()) return null;
+  const st = await alarmStatus();
+  if (st) {
+    window.__alarmStatus = st;
+    window.__nativePerm = st.notifications ? 'granted' : 'denied';
   }
+  return st;
+}
+
+export async function notify(title, body, tag) {
+  // 原生闹钟已负责「响铃 + 通知」，这里再弹一次会变成双份
+  if (alarmPlugin()) return;
+
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   const opts = {
     body,
@@ -283,9 +342,12 @@ function cleanupFired() {
 async function fire(title, body, key, payload) {
   db.fired[key] = Date.now();
   persist();
-  await notify(title, body, key);
-  beep();
-  vibrateFire();
+  // 原生闹钟此刻已经在响（走闹钟音量），网页层只负责界面提示，不再重复出声
+  if (!alarmPlugin()) {
+    await notify(title, body, key);
+    beep();
+    vibrateFire();
+  }
   document.dispatchEvent(new CustomEvent('reminder-fired', { detail: payload }));
 }
 

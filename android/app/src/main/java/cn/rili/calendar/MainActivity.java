@@ -24,6 +24,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(AppUpdaterPlugin.class);
+        registerPlugin(AlarmPlugin.class);
         super.onCreate(savedInstanceState);
         try {
             getBridge().getWebView().addJavascriptInterface(new BackBridge(), "AppBack");
@@ -33,9 +34,11 @@ public class MainActivity extends BridgeActivity {
         // 覆盖安装后 WebView 仍可能拿缓存的 index.html / js，导致「界面还是老样子」——
         // 这一步就是把这个坑堵掉。
         clearWebCacheOnUpgrade();
-        // 桌面图标跟着日期走（预置 217 个 alias，这里只切换当天那一个）
+        // 只把跨天检查排好，先不动图标：
+        // 本次很可能是从「昨天那张图标」点进来的，此刻禁用那个 alias 会让系统连当前任务一起结束，
+        // 用户看到的就是「点开闪退，然后图标才变」。真正切换放到 onStop。
         try {
-            IconSwitcher.sync(this);
+            IconSwitcher.ensureScheduled(this);
         } catch (Exception ignored) {
         }
     }
@@ -69,6 +72,18 @@ public class MainActivity extends BridgeActivity {
             CalendarWidgetProvider.updateAll(this);
         } catch (Exception ignored) {
         }
+        try {
+            // 只补排跨天检查；图标切换交给 onStop
+            IconSwitcher.ensureScheduled(this);
+        } catch (Exception ignored) {
+        }
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        // 离开 App 之后才切图标：此时没有正在运行的任务会被影响，
+        // 回到桌面就能看到今天这张，也不会出现「点开就闪退」。
         try {
             IconSwitcher.sync(this);
         } catch (Exception ignored) {

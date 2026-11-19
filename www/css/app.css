@@ -1583,3 +1583,6 @@ body.auth-open .app { pointer-events: none; }
   .auth-brand { margin-bottom: 18px; }
   .auth-brand h2 { font-size: 20px; }
 }
+
+/* 设置页里「需要用户处理」的右值 */
+.row .val.warn { color: var(--red); font-weight: 600; }
